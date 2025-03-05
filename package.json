@@ -1,0 +1,22 @@
+{
+  "name": "com.jiaozi158.unity-physically-based-sky-urp",
+  "displayName": "Physically Based Sky for Universal RP",
+  "version": "1.0.0",
+  "unity": "2022.3",
+  "unityRelease": "35f1",
+  "description": "Physically Based Sky (URP) simulates a spherical planet with a two-part atmosphere that has an exponentially decreasing density based on its altitude.",
+  "documentationUrl": "https://github.com/jiaozi158/UnityPhysicallyBasedSkyURP/blob/main/Documentation~/Documentation.md",
+  "license": "MIT",
+  "licensesUrl": "https://github.com/jiaozi158/UnityPhysicallyBasedSkyURP/blob/main/LICENSE.md",
+  "changelogUrl": "https://github.com/jiaozi158/UnityPhysicallyBasedSkyURP/blob/main/CHANGELOG.md",
+  "author": "Jiaozi158",
+  "keywords": [
+    "unity",
+    "rendering",
+    "graphics",
+    "sky"
+  ],
+  "dependencies": {
+      "com.unity.render-pipelines.universal": "14.0.11"
+  }
+}

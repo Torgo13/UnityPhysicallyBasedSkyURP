@@ -1,0 +1,16 @@
+fileFormatVersion: 2
+guid: 3c1c34126d0c3824cb7e942eb35d4fa6
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences:
+  - m_Shader: {fileID: 4800000, guid: cba92fa286f80234db50615beb33eab2, type: 3}
+  - m_LutShader: {fileID: 4800000, guid: b2d9c6e519415af43a8d8e54c3ca5a4d, type: 3}
+  - m_FallbackSkyMaterial: {fileID: 2100000, guid: 7c6697a3d51c9324c8e9ad3284a1ac04,
+      type: 2}
+  - m_VolumetricCloudsMaterial: {instanceID: 0}
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
