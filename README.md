@@ -38,6 +38,7 @@ Requirements
  
 Reminders
 ------------
+- It is suggested to set the **Sun Intensity** to **3 (3.030782)** and the **Exposure** to **0** as a starting point.
 - Please open an issue if anything went wrong.
  
 License
