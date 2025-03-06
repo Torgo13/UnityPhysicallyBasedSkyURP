@@ -25,37 +25,6 @@
 TEXTURECUBE(_SkyTexture);
 half _SkyTextureMipCounts;
 
-float3 RotateY45(float3 dir)
-{
-    const float sin45 = 0.70710678118; // sqrt(2)/2
-    const float cos45 = 0.70710678118;
-
-    return float3(
-        dir.x * cos45 + dir.z * sin45, // 新X分量
-        dir.y,                         // Y保持不变
-        -dir.x * sin45 + dir.z * cos45 // 新Z分量
-        );
-}
-
-float weight(float t, float log2radius, float gamma) {
-    return exp(-gamma * pow(log2radius - t, 2));
-}
-
-half3 mipmapBlur(float3 dir, float radius, float gamma = 0.5) {
-    half3 col = 0;
-    float norm = 0;
-    float log2radius = log2(radius);
-    float maxMip = _SkyTextureMipCounts; // 获取最大Mip层级
-
-    for (float i = 0; i < 8; i += 0.5) {
-        //i = min(i, maxMip); // 防止超出实际Mip层级
-        float k = weight(i, log2radius, gamma);
-        col += k * SAMPLE_TEXTURECUBE_LOD(_SkyTexture, s_trilinear_clamp_sampler, -dir, i).rgb;
-        norm += k;
-    }
-    return col * pow(norm, -0.95);
-}
-
 // The "_SkyTexture" is not convolved, so we need an alternative method...
 half3 GetFogColor(half3 V, float fragDist)
 {
@@ -70,10 +39,6 @@ half3 GetFogColor(half3 V, float fragDist)
         //half3 viewColor = SAMPLE_TEXTURECUBE_LOD(_SkyTexture, s_trilinear_clamp_sampler, -V, mipLevel).rgb; // '_FogColor' is the tint
         
         // For the atmospheric scattering, we use the environment cubemap. (no convolution)
-        //half3 projectV = half3(V.x, 0.0, V.z);
-        //half3 upDirection = normalize(projectV - half3(0.0, 1.0, 0.0));
-        //half3 downDirection = normalize(projectV - half3(0.0, -1.0, 0.0));
-
         const half MIP_OFFSET_HORIZON = 2.0;
         const half MIP_OFFSET_LOW = 2.5;
         const half MIP_OFFSET_HIGH = 3.5;
@@ -85,8 +50,6 @@ half3 GetFogColor(half3 V, float fragDist)
         half3 upDirection   = normalize(horizontalV - U);
         half3 downDirection = normalize(horizontalV - D);
 
-
-
         half3 viewColor;
         UNITY_BRANCH
         if (_SkyTextureMipCounts == 0.0)
@@ -97,7 +60,6 @@ half3 GetFogColor(half3 V, float fragDist)
         }
         else
         {
-            
             half3 groundColor = SAMPLE_TEXTURECUBE_LOD(_SkyTexture, s_trilinear_clamp_sampler, -downDirection, mipLevel).rgb;
             half3 horizonColor = SAMPLE_TEXTURECUBE_LOD(_SkyTexture, s_trilinear_clamp_sampler, -V, mipLevel + MIP_OFFSET_HORIZON).rgb;
             half3 lowBlurColor = SAMPLE_TEXTURECUBE_LOD(_SkyTexture, s_trilinear_clamp_sampler, -V, mipLevel + MIP_OFFSET_LOW).rgb;
@@ -113,23 +75,6 @@ half3 GetFogColor(half3 V, float fragDist)
             viewColor = lerp(groundColor, horizonColor, verticalLerp);
             viewColor += lowBlurColor * weight1;
             viewColor += highBlurColor * weight2;
-
-            /*
-            half3 equatorColor = SAMPLE_TEXTURECUBE_LOD(_SkyTexture, s_trilinear_clamp_sampler, -V, mipLevel + 2.0).rgb;
-            half3 groundColor = SAMPLE_TEXTURECUBE_LOD(_SkyTexture, s_trilinear_clamp_sampler, -downDirection, mipLevel).rgb;
-
-            half VdotD = saturate(dot(V, downDirection));
-            half lerpFactor = 1.0 - VdotD * VdotD;
-
-            half3 viewColor1 = SAMPLE_TEXTURECUBE_LOD(_SkyTexture, s_trilinear_clamp_sampler, -V, mipLevel + 2.5).rgb;
-            half weight1 = saturate(1.0 - VdotD);
-            half3 viewColor2 = SAMPLE_TEXTURECUBE_LOD(_SkyTexture, s_trilinear_clamp_sampler, -V, mipLevel + 3.5).rgb;
-            half weight2 = saturate((1.0 - VdotD) * 3);
-
-            viewColor = lerp(groundColor, equatorColor, lerpFactor);
-            viewColor = lerp(viewColor, viewColor + viewColor1, weight1);
-            viewColor = lerp(viewColor, viewColor + viewColor2, weight2);
-            */
         }
 
         color *= viewColor;
