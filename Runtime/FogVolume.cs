@@ -43,7 +43,7 @@ public class Fog : VolumeComponent, IPostProcessComponent
     [Tooltip("Sets the distance at which URP uses the maximum mip image of the blurred sky texture as the fog color.")]
     public MinFloatParameter mipFogFar = new MinFloatParameter(1000.0f, 0.0f);
 
-    // Volumetric Clouds
+    // Volumetric Fog
     /// <summary>Controls how much the multiple-scattering will affect the scene. Directly controls the amount of blur depending on the fog density.</summary>
     //[AdditionalProperty]
     //[Tooltip("Use this value to simulate multiple scattering when combining the fog with the scene color.")]
@@ -67,7 +67,7 @@ public class Fog : VolumeComponent, IPostProcessComponent
     [DisplayInfo(name = "Fog Attenuation Distance"), Tooltip("Controls the density at the base level (per color channel). Distance at which fog reduces background light intensity by 63%. Units: m.")]
     public MinFloatParameter meanFreePath = new MinFloatParameter(400.0f, 1.0f);
 
-    // Volumetric Clouds
+    // Volumetric Fog
     // Limit parameters for the fog quality
     //const float minFogScreenResolutionPercentage = (1.0f / 16.0f) * 100;
     //const float optimalFogScreenResolutionPercentage = (1.0f / 8.0f) * 100;
