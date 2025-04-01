@@ -608,7 +608,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 float3 sunAttenuation = EvaluateSunColorAttenuation(float3(camera.transform.position) - visualEnvironment.GetPlanetCenterRadius(camera.transform.position).xyz, -mainLight.transform.forward);
 
                 Color color = mainLight.color.linear * (mainLight.useColorTemperature ? Mathf.CorrelatedColorTemperatureToRGB(mainLight.colorTemperature) : Color.white);
-                mainLightColor = float3(color.r, color.g, color.a) * mainLight.intensity * sunAttenuation;
+                mainLightColor = float3(color.r, color.g, color.b) * mainLight.intensity * sunAttenuation;
             }
 
             UpdateMaterialProperties(mainLight, camera, material);
@@ -700,7 +700,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                     float3 sunAttenuation = EvaluateSunColorAttenuation(float3(camera.transform.position) - visualEnvironment.GetPlanetCenterRadius(camera.transform.position).xyz, -mainLight.transform.forward);
 
                     Color color = mainLight.color.linear * (mainLight.useColorTemperature ? Mathf.CorrelatedColorTemperatureToRGB(mainLight.colorTemperature) : Color.white);
-                    mainLightColor = float3(color.r, color.g, color.a) * mainLight.intensity * sunAttenuation;
+                    mainLightColor = float3(color.r, color.g, color.b) * mainLight.intensity * sunAttenuation;
                 }
 
                 UpdateMaterialProperties(mainLight, camera, material);
