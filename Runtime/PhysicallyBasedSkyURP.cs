@@ -308,6 +308,13 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
             bool hasFog = isPbrSky && pbrSkyVolume.atmosphericScattering.value || (fogVolume != null && fogVolume.IsActive());
 
+        #if UNITY_EDITOR
+            bool isEditingPrefab = UnityEditor.SceneManagement.PrefabStageUtility.GetCurrentPrefabStage() != null;
+            bool isSceneViewFocused = UnityEditor.SceneView.lastActiveSceneView != null && UnityEditor.SceneView.lastActiveSceneView.hasFocus;
+            // Disable atmospheric scattering and fog when entering prefab mode.
+            hasFog &= !(isEditingPrefab && isSceneViewFocused);
+        #endif
+
             if (isPbrSky)
             {
                 renderer.EnqueuePass(m_PBSkyPrePass);
@@ -588,7 +595,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             {
                 VisibleLight shadowLight = lightData.visibleLights[shadowLightIndex];
                 Light light = shadowLight.light;
-                if ((light.shadows != LightShadows.None || !RenderSettings.sun.isActiveAndEnabled) && shadowLight.lightType == LightType.Directional)
+                if ((light.shadows != LightShadows.None || RenderSettings.sun != null && !RenderSettings.sun.isActiveAndEnabled) && shadowLight.lightType == LightType.Directional)
                     return light;
             }
 
@@ -655,7 +662,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             {
                 VisibleLight shadowLight = lightData.visibleLights[shadowLightIndex];
                 Light light = shadowLight.light;
-                if ((light.shadows != LightShadows.None || !RenderSettings.sun.isActiveAndEnabled) && shadowLight.lightType == LightType.Directional)
+                if ((light.shadows != LightShadows.None || RenderSettings.sun != null && !RenderSettings.sun.isActiveAndEnabled) && shadowLight.lightType == LightType.Directional)
                     return light;
             }
 
@@ -1509,13 +1516,9 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         {
             int hash = 13;
             hash = hash * 23 + airSingleScatteringHandle.GetHashCode();
-            hash = hash * 23 + airSingleScatteringHandle.rtHandleProperties.GetHashCode();
             hash = hash * 23 + aerosolSingleScatteringHandle.GetHashCode();
-            hash = hash * 23 + aerosolSingleScatteringHandle.rtHandleProperties.GetHashCode();
             hash = hash * 23 + multipleScatteringHandle.GetHashCode();
-            hash = hash * 23 + multipleScatteringHandle.rtHandleProperties.GetHashCode();
             hash = hash * 23 + groundIrradianceHandle.GetHashCode();
-            hash = hash * 23 + groundIrradianceHandle.rtHandleProperties.GetHashCode();
             return hash;
         }
 
