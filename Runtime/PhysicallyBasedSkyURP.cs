@@ -51,7 +51,9 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
     private PBSkyPrePass m_PBSkyPrePass;
     private SkyViewLUTPass m_SkyViewLUTPass;
     private AtmosphericScatteringPass m_AtmosphericScatteringPass;
+#if AMBIENT_PROBE
     private AmbientProbePass m_AmbientProbePass;
+#endif // AMBIENT_PROBE
     private PBSkyPostPass m_PBSkyPostPass;
 
     [Header("Sky")]
@@ -210,6 +212,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         // Cleanup settings when disabled
         if (!isActive)
         {
+#if AMBIENT_PROBE
             bool isCustomSkyType = visualEnvVolume != null && visualEnvVolume.IsActive() && visualEnvVolume.skyType.value == (int)VisualEnvironment.SkyType.Custom && visualEnvVolume.customSkyMaterial.value != null;
 
             RenderSettings.skybox = isCustomSkyType ? visualEnvVolume.customSkyMaterial.value : m_FallbackSkyMaterial;
@@ -225,6 +228,8 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 DynamicGI.UpdateEnvironment();
             }
         #endif
+#endif // AMBIENT_PROBE
+
             return;
         }
 
@@ -255,11 +260,13 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         };
 
         m_AtmosphericScatteringPass.lutMaterial = m_PbrSkyLUTMaterial;
-
+        
+#if AMBIENT_PROBE
         m_AmbientProbePass ??= new AmbientProbePass(m_VolumetricCloudsMaterial)
         {
             renderPassEvent = RenderPassEvent.AfterRenderingPrePasses
         };
+#endif // AMBIENT_PROBE
 
         m_PBSkyPostPass ??= new PBSkyPostPass()
         {
@@ -329,7 +336,8 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             
             renderer.EnqueuePass(m_PBSkyPostPass);
         }
-
+        
+#if AMBIENT_PROBE
         if (visualEnvVolume.skyAmbientMode.value == VisualEnvironment.SkyAmbientMode.Dynamic && renderingData.cameraData.camera.cameraType != CameraType.Reflection && RenderSettings.skybox != null)
         {
             m_AmbientProbePass.visualEnvironment = visualEnvVolume;
@@ -339,6 +347,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             renderer.EnqueuePass(m_AmbientProbePass);
         }
         else
+#endif // AMBIENT_PROBE
         {
             Shader.DisableKeyword(k_DynamicAmbientProbeKeywordName);
         }
@@ -356,9 +365,11 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
         if (m_AtmosphericScatteringPass != null)
             m_AtmosphericScatteringPass.Dispose();
-
+        
+#if AMBIENT_PROBE
         if (m_AmbientProbePass != null)
             m_AmbientProbePass.Dispose();
+#endif // AMBIENT_PROBE
 
         if (m_PBSkyPostPass != null)
             m_PBSkyPostPass.Dispose();
@@ -379,6 +390,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
     private void UpdateSkySettings(bool isPbrSky, VisualEnvironment visualEnvVolume)
     {
+#if AMBIENT_PROBE
         bool isCustomSky = visualEnvVolume.skyType.value == (int)VisualEnvironment.SkyType.Custom;
         bool isCustomSkyValid = visualEnvVolume.customSkyMaterial.value != null;
 
@@ -409,7 +421,8 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         {
             DynamicGI.UpdateEnvironment();
         }
-    #endif  
+    #endif
+#endif // AMBIENT_PROBE
 
         lastSkyType = visualEnvVolume.skyType.value;
         lastSkyAmbientMode = visualEnvVolume.skyAmbientMode.value;
@@ -507,8 +520,10 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         private const string PHYSICALLY_BASED_SKY = "PHYSICALLY_BASED_SKY";
         private const string LOCAL_SKY = "LOCAL_SKY";
         private const string SKY_NOT_BAKING = "SKY_NOT_BAKING";
-
+        
+#if AMBIENT_PROBE
         private SphericalHarmonicsL2 ambientProbe = new SphericalHarmonicsL2();
+#endif // AMBIENT_PROBE
 
         private const int fibonacciSamplesCount = 64;
         private static readonly float3[] fibonacciSamples = new float3[] {
@@ -620,12 +635,14 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
             UpdateMaterialProperties(mainLight, camera, material);
             lutMaterial.CopyPropertiesFromMaterial(material);
-
+            
+#if AMBIENT_PROBE
             if (mainLight != null && visualEnvironment.skyAmbientMode.value == VisualEnvironment.SkyAmbientMode.Dynamic)
             {
                 ambientProbe = UpdateAmbientProbe(ambientProbe, mainLight.transform.forward, mainLightColor);
                 RenderSettings.ambientProbe = ambientProbe;
             }
+#endif // AMBIENT_PROBE
         }
 
     #if UNITY_6000_0_OR_NEWER
@@ -1989,12 +2006,14 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                     cmd.SetViewMatrix(skyViewMatrices[i]);
                     //cmd.SetGlobalMatrix(unity_MatrixVP, skyMatrixVP);
                     cmd.SetGlobalMatrix(unity_MatrixInvVP, skyMatrixVP.inverse);
-
+                    
+#if AMBIENT_PROBE
                     if (isPbrSky)
                     {
                         Blitter.BlitTexture(cmd, probeColorHandle, m_ScaleBias, RenderSettings.skybox, pass: 1);
                     }
                     else
+#endif // AMBIENT_PROBE
                     {
                         RendererList rendererList = context.CreateSkyboxRendererList(camera, skyProjectionMatrix, skyViewMatrices[i]);
                         cmd.DrawRendererList(rendererList);
@@ -2026,8 +2045,10 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 }
 
                 cmd.SetGlobalTexture(glossyEnvironmentCubeMap, probeColorHandle);
+#if AMBIENT_PROBE
                 RenderSettings.defaultReflectionMode = isDynamicAmbientMode ? DefaultReflectionMode.Custom : RenderSettings.defaultReflectionMode;
                 RenderSettings.customReflectionTexture = isDynamicAmbientMode ? probeColorHandle : null;
+#endif // AMBIENT_PROBE
                 cmd.SetGlobalVector(worldSpaceCameraPos, cameraPositionWS);
                 cmd.SetGlobalFloat(disableSunDisk, 0.0f);
 
