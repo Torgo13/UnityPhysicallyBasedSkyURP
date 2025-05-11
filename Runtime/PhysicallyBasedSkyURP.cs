@@ -43,9 +43,11 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
     [SerializeField] private PrecomputationQualityMode m_Precomputation = PrecomputationQualityMode.High;
 
     private bool isShaderMismatchLogPrinted;
+#if AMBIENT_PROBE
     private int lastSkyType;
     private VisualEnvironment.SkyAmbientMode lastSkyAmbientMode;
-    
+#endif // AMBIENT_PROBE
+
     private CelestialBodyData m_CelestialBodyData = new CelestialBodyData();
 
     private PBSkyPrePass m_PBSkyPrePass;
@@ -69,7 +71,9 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
     private const string k_CloudsShaderName = "Hidden/Sky/VolumetricClouds";
     private const string k_PbrSkyMaterialName = "Physically Based Sky";
+#if AMBIENT_PROBE
     private const string k_DynamicAmbientProbeKeywordName = "VISUAL_ENVIRONMENT_DYNAMIC_SKY";
+#endif // AMBIENT_PROBE
     private const string k_AtmosphericScatteringLowResolutionKeywordName = "ATMOSPHERIC_SCATTERING_LOW_RES";
 
     /// <summary>
@@ -347,10 +351,10 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             renderer.EnqueuePass(m_AmbientProbePass);
         }
         else
-#endif // AMBIENT_PROBE
         {
             Shader.DisableKeyword(k_DynamicAmbientProbeKeywordName);
         }
+#endif // AMBIENT_PROBE
 
         UpdateSkySettings(isPbrSky, visualEnvVolume);
     }
@@ -388,6 +392,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             : null;
     }
 
+    [System.Diagnostics.Conditional("AMBIENT_PROBE")]
     private void UpdateSkySettings(bool isPbrSky, VisualEnvironment visualEnvVolume)
     {
 #if AMBIENT_PROBE
@@ -422,10 +427,10 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             DynamicGI.UpdateEnvironment();
         }
     #endif
-#endif // AMBIENT_PROBE
 
         lastSkyType = visualEnvVolume.skyType.value;
         lastSkyAmbientMode = visualEnvVolume.skyAmbientMode.value;
+#endif // AMBIENT_PROBE
     }
 
     /// <summary>
@@ -755,6 +760,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
         }
 
+#if AMBIENT_PROBE
         SphericalHarmonicsL2 UpdateAmbientProbe(SphericalHarmonicsL2 ambientProbe, float3 lightDirection, float3 lightColor)
         {
             ambientProbe.Clear();
@@ -771,6 +777,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             }
             return ambientProbe;
         }
+#endif // AMBIENT_PROBE
 
         private void UpdateMaterialProperties(Light mainLight, Camera camera, Material material)
         {
@@ -1861,6 +1868,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         #endregion
     }
 
+#if AMBIENT_PROBE
     /// <summary>
     /// This pass updates the sky and environment reflection.
     /// </summary>
@@ -2273,5 +2281,6 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
         #endregion
     }
+#endif // AMBIENT_PROBE
 
 }
