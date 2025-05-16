@@ -1,10 +1,10 @@
 {
   "name": "com.jiaozi158.unity-physically-based-sky-urp",
   "displayName": "Physically Based Sky for Universal RP",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "unity": "2022.2",
   "unityRelease": "19f1",
-  "description": "Physically Based Sky (URP) simulates a spherical planet with a two-part atmosphere that has an exponentially decreasing density based on its altitude.",
+  "description": "Physically Based Sky (URP) simulates a spherical planet with a two-part atmosphere that has an exponentially decreasing density based on its altitude.\n\nThis package comes with the following features:\n\n  - Physically Based Sky\n  - Atmospheric Scattering\n  - Height-Based Fog\n  - Dynamic Sky Reflection\n  - Dynamic Ambient Lighting (PBSky only)",
   "documentationUrl": "https://github.com/jiaozi158/UnityPhysicallyBasedSkyURP/blob/main/Documentation~/Documentation.md",
   "license": "MIT",
   "licensesUrl": "https://github.com/jiaozi158/UnityPhysicallyBasedSkyURP/blob/main/LICENSE.md",

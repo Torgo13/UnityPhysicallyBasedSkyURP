@@ -616,6 +616,12 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
                 Color color = mainLight.color.linear * (mainLight.useColorTemperature ? Mathf.CorrelatedColorTemperatureToRGB(mainLight.colorTemperature) : Color.white);
                 mainLightColor = float3(color.r, color.g, color.b) * mainLight.intensity * sunAttenuation;
+
+            #if URP_PHYSICAL_LIGHT
+                bool isPhysicalLight = mainLight.GetComponent<AdditionalLightData>() != null;
+
+                mainLightColor = isPhysicalLight ? mainLightColor * rcp(PI) : mainLightColor;
+            #endif
             }
 
             UpdateMaterialProperties(mainLight, camera, material);
@@ -708,6 +714,12 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
                     Color color = mainLight.color.linear * (mainLight.useColorTemperature ? Mathf.CorrelatedColorTemperatureToRGB(mainLight.colorTemperature) : Color.white);
                     mainLightColor = float3(color.r, color.g, color.b) * mainLight.intensity * sunAttenuation;
+
+                #if URP_PHYSICAL_LIGHT
+                    bool isPhysicalLight = mainLight.GetComponent<AdditionalLightData>() != null;
+
+                    mainLightColor = isPhysicalLight ? mainLightColor * rcp(PI) : mainLightColor;
+                #endif
                 }
 
                 UpdateMaterialProperties(mainLight, camera, material);
@@ -869,7 +881,15 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 var flareCosInner = Mathf.Cos(angularRadius);
                 float rcpSolidAngle = 1.0f / (Mathf.PI * 2.0f * (1 - flareCosInner));
 
+            #if URP_PHYSICAL_LIGHT
+                var color = mainLight.color.linear * mainLight.intensity;
+
+                bool isPhysicalLight = mainLight.GetComponent<AdditionalLightData>() != null;
+                color = isPhysicalLight ? color : color * PI;
+            #else
                 var color = mainLight.color.linear * mainLight.intensity * PI;
+            #endif
+
                 color = mainLight.useColorTemperature ? color * Mathf.CorrelatedColorTemperatureToRGB(mainLight.colorTemperature) : color;
                 var surfaceColor = Vector4.one;
                 var flareColor = Vector4.one;
@@ -1090,6 +1110,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             desc.autoGenerateMips = false;
             desc.graphicsFormat = GraphicsFormat.B10G11R11_UFloatPack32;
             desc.dimension = TextureDimension.Tex2D;
+            desc.useDynamicScale = false;
 
             desc.width = k_MultiScatteringLutWidth;
             desc.height = k_MultiScatteringLutHeight;
@@ -1389,6 +1410,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 desc.autoGenerateMips = false;
                 desc.graphicsFormat = GraphicsFormat.B10G11R11_UFloatPack32;
                 desc.dimension = TextureDimension.Tex2D;
+                desc.useDynamicScale = false;
 
                 desc.width = k_MultiScatteringLutWidth;
                 desc.height = k_MultiScatteringLutHeight;
@@ -1590,6 +1612,9 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         private static readonly int _UnderWaterEnabled = Shader.PropertyToID("_UnderWaterEnabled");
         private static readonly int _FogWaterHeight = Shader.PropertyToID("_FogWaterHeight");
 
+        // "_ScreenSize" that supports dynamic resolution
+        private static readonly int _ScreenResolution = Shader.PropertyToID("_ScreenResolution");
+
         public AtmosphericScatteringPass(Material lutMaterial)
         {
             this.lutMaterial = lutMaterial;
@@ -1621,8 +1646,14 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 cmd.SetGlobalInteger(_FogEnabled, isFogEnabled ? 1 : 0);
 
                 var cameraColorHandle = renderingData.cameraData.renderer.cameraColorTargetHandle;
+
                 if (cameraColorHandle != null)
+                {
+                    CalculateActualScreenResolution(cmd, cameraColorHandle);
+
                     Blitter.BlitCameraTexture(cmd, cameraColorHandle, cameraColorHandle, RenderBufferLoadAction.Load, RenderBufferStoreAction.Store, lutMaterial, pass: 4);
+                }
+                    
             }
             context.ExecuteCommandBuffer(cmd);
             cmd.Clear();
@@ -1645,6 +1676,9 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         static void ExecutePass(PassData data, UnsafeGraphContext context)
         {
             CommandBuffer cmd = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
+
+            if (data.cameraColorHandle.IsValid())
+                CalculateActualScreenResolution(cmd, data.cameraColorHandle);
 
             cmd.SetGlobalInteger(_FogEnabled, data.enableFog ? 1 : 0);
 
@@ -1743,6 +1777,28 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             // -d / H = Log[0.001]
             // H = d / -Log[0.001]
             return d * 0.144765f;
+        }
+
+        static void CalculateActualScreenResolution(CommandBuffer cmd, RTHandle cameraTargetHandle)
+        {
+            float width = cameraTargetHandle.rt.width;
+            float height = cameraTargetHandle.rt.height;
+            if (cameraTargetHandle.rt.useDynamicScale)
+            {
+             #if ENABLE_VR && ENABLE_XR_MODULE
+                if (cameraTargetHandle.rt.vrUsage != VRTextureUsage.None)
+                {
+                    width = XRSystem.ScaleTextureWidthForXR(cameraTargetHandle.rt);
+                    height = XRSystem.ScaleTextureHeightForXR(cameraTargetHandle.rt);
+                }
+                else
+            #endif
+                {
+                    width *= ScalableBufferManager.widthScaleFactor;
+                    height *= ScalableBufferManager.heightScaleFactor;
+                }
+            }
+            cmd.SetGlobalVector(_ScreenResolution, new Vector4(width, height, 1.0f / width, 1.0f / height));
         }
         #endregion
     }
@@ -1923,6 +1979,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             desc.graphicsFormat = GraphicsFormat.B10G11R11_UFloatPack32;
             desc.depthStencilFormat = GraphicsFormat.None;
             desc.depthBufferBits = 0;
+            desc.useDynamicScale = false;
 
             bool hasVolumetricClouds = cloudsMaterial != null && Shader.IsKeywordEnabled(VOLUMETRIC_CLOUDS);
 
@@ -2185,6 +2242,8 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 desc.dimension = TextureDimension.Cube;
                 desc.graphicsFormat = GraphicsFormat.B10G11R11_UFloatPack32;
                 desc.depthBufferBits = 0;
+                desc.useDynamicScale = false;
+
                 RenderingUtils.ReAllocateHandleIfNeeded(ref probeColorHandle, desc, FilterMode.Trilinear, TextureWrapMode.Clamp, name: _GlossyEnvironmentCubeMap);
                 TextureHandle probeColorTextureHandle = renderGraph.ImportTexture(probeColorHandle);
                 passData.probeColorHandle = probeColorTextureHandle;
