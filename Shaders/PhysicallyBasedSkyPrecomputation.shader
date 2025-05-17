@@ -603,6 +603,9 @@ Shader "Hidden/Sky/PhysicallyBasedSkyPrecomputation"
 
             #define OPAQUE_FOG_PASS
 
+            // "_ScreenSize" that supports dynamic resolution
+            float4 _ScreenResolution;
+
             SAMPLER(s_point_clamp_sampler);
 
             TEXTURE2D_X_FLOAT(_CameraDepthTexture);
@@ -639,12 +642,12 @@ Shader "Hidden/Sky/PhysicallyBasedSkyPrecomputation"
             {
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
                 float2 screenUV = input.texcoord.xy;
-                int2 pixelCoords = int2(screenUV * _ScreenSize.xy);
+                int2 pixelCoords = int2(screenUV * _ScreenResolution.xy);
 
                 float3 V = normalize(GetCameraPositionWS() - input.positionWS);
                 float depth = LOAD_TEXTURE2D_X_LOD(_CameraDepthTexture, pixelCoords, 0).r;
                 //float depth = SAMPLE_TEXTURE2D_X_LOD(_CameraDepthTexture, s_point_clamp_sampler, screenUV, 0).r;
-                PositionInputs posInput = GetPositionInput(input.positionCS.xy, _ScreenSize.zw, depth, UNITY_MATRIX_I_VP, UNITY_MATRIX_V);
+                PositionInputs posInput = GetPositionInput(input.positionCS.xy, _ScreenResolution.zw, depth, UNITY_MATRIX_I_VP, UNITY_MATRIX_V);
 
                 half3 volColor, volOpacity = 0.0;
                 EvaluateAtmosphericScattering(posInput, V, volColor, volOpacity);
