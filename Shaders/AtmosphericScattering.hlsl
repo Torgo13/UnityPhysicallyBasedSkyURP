@@ -22,8 +22,10 @@
 #define _MipFogFar          _MipFogParameters.y
 #define _MipFogMaxMip       _MipFogParameters.z
 
+#if AMBIENT_PROBE
 TEXTURECUBE(_SkyTexture);
 half _SkyTextureMipCounts;
+#endif // AMBIENT_PROBE
 
 // The "_SkyTexture" is not convolved, so we need an alternative method...
 half3 GetFogColor(half3 V, float fragDist)
@@ -33,7 +35,11 @@ half3 GetFogColor(half3 V, float fragDist)
     if (_FogColorMode == FOGCOLORMODE_SKY_COLOR)
     {
         // Based on Uncharted 4 "Mip Sky Fog" trick: http://advances.realtimerendering.com/other/2016/naughty_dog/NaughtyDog_TechArt_Final.pdf
+#if AMBIENT_PROBE
         half mimMip = _SkyTextureMipCounts == 0.0 ? 7.0 - 1.0 : _SkyTextureMipCounts - 1.0;
+#else
+        half mimMip = half(6.0);
+#endif // AMBIENT_PROBE
         half mipLevel = (1.0 - _MipFogMaxMip * saturate((fragDist - _MipFogNear) / (_MipFogFar - _MipFogNear))) * (mimMip);
         
         //half3 viewColor = SAMPLE_TEXTURECUBE_LOD(_SkyTexture, s_trilinear_clamp_sampler, -V, mipLevel).rgb; // '_FogColor' is the tint
@@ -51,13 +57,16 @@ half3 GetFogColor(half3 V, float fragDist)
         half3 downDirection = normalize(horizontalV - D);
 
         half3 viewColor;
+#if AMBIENT_PROBE
         UNITY_BRANCH
         if (_SkyTextureMipCounts == 0.0)
+#endif // AMBIENT_PROBE
         {
             // GGX convoluted cubemap (baked)
             half4 encodedIrradiance = SAMPLE_TEXTURECUBE_LOD(_GlossyEnvironmentCubeMap, s_trilinear_clamp_sampler, -V, mipLevel); // '_FogColor' is the tint
             viewColor = DecodeHDREnvironment(encodedIrradiance, _GlossyEnvironmentCubeMap_HDR);
         }
+#if AMBIENT_PROBE
         else
         {
             half3 groundColor = SAMPLE_TEXTURECUBE_LOD(_SkyTexture, s_trilinear_clamp_sampler, -downDirection, mipLevel).rgb;
@@ -76,6 +85,7 @@ half3 GetFogColor(half3 V, float fragDist)
             viewColor += lowBlurColor * weight1;
             viewColor += highBlurColor * weight2;
         }
+#endif // AMBIENT_PROBE
 
         color *= viewColor;
     }

@@ -295,7 +295,8 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         VisualEnvironment visualEnvVolume = stack.GetComponent<VisualEnvironment>();
         Fog fogVolume = stack.GetComponent<Fog>();
 
-        bool isPbrSky = pbrSkyVolume != null && visualEnvVolume != null && visualEnvVolume.IsActive() && visualEnvVolume.skyType.value == (int)VisualEnvironment.SkyType.PhysicallyBased;
+        const int physicallyBased = (int)VisualEnvironment.SkyType.PhysicallyBased;
+        bool isPbrSky = pbrSkyVolume != null && visualEnvVolume != null && visualEnvVolume.IsActive() && visualEnvVolume.skyType.value == physicallyBased;
 
         {
             bool halfResolutionLuts = m_Precomputation == PrecomputationQualityMode.Low;
@@ -392,7 +393,6 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             : null;
     }
 
-    [System.Diagnostics.Conditional("AMBIENT_PROBE")]
     private void UpdateSkySettings(bool isPbrSky, VisualEnvironment visualEnvVolume)
     {
 #if AMBIENT_PROBE
@@ -420,16 +420,21 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             ? m_FallbackSkyMaterial
             : RenderSettings.skybox;
 
-    #if UNITY_EDITOR
+#if UNITY_EDITOR
         // Re-bake the sky ambient probe
         if (isSkyTypeChanged && (!isPbrSky || !isDynamicSky) && RenderSettings.skybox != null)
         {
             DynamicGI.UpdateEnvironment();
         }
-    #endif
+#endif
 
         lastSkyType = visualEnvVolume.skyType.value;
         lastSkyAmbientMode = visualEnvVolume.skyAmbientMode.value;
+#else
+        // Update the sky material
+        RenderSettings.skybox = isPbrSky
+            ? m_PbrSkyMaterial
+            : m_FallbackSkyMaterial;
 #endif // AMBIENT_PROBE
     }
 
@@ -528,7 +533,6 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         
 #if AMBIENT_PROBE
         private SphericalHarmonicsL2 ambientProbe = new SphericalHarmonicsL2();
-#endif // AMBIENT_PROBE
 
         private const int fibonacciSamplesCount = 64;
         private static readonly float3[] fibonacciSamples = new float3[] {
@@ -597,6 +601,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             new float3(0.103734f, 0.968254f, -0.227428f),
             new float3(-0.000000f, 1.000000f, 0.000000f)
         };
+#endif // AMBIENT_PROBE
 
         public PBSkyPrePass(Material material, CelestialBodyData celestialBodyData)
         {
@@ -1248,7 +1253,6 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                     {
                         cmd.SetGlobalInteger(PBSky_TableCoord_Z, slice);
                         cmd.SetRenderTarget(lutHandles, airSingleScatteringHandle, 0, CubemapFace.Unknown, slice);
-
                         Blitter.BlitTexture(cmd, airSingleScatteringHandle, m_ScaleBias, lutMaterial, pass: 2);
                     }
 
@@ -1842,7 +1846,9 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
         private static readonly int _EnableAtmosphericScattering = Shader.PropertyToID("_EnableAtmosphericScattering");
         private static readonly int _FogEnabled = Shader.PropertyToID("_FogEnabled");
+#if AMBIENT_PROBE
         private static readonly int _SkyTextureMipCounts = Shader.PropertyToID("_SkyTextureMipCounts");
+#endif // AMBIENT_PROBE
 
         public PBSkyPostPass()
         {
@@ -1869,7 +1875,9 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             {
                 cmd.SetGlobalFloat(_EnableAtmosphericScattering, 0.0f);
                 cmd.SetGlobalInteger(_FogEnabled, 0);
+#if AMBIENT_PROBE
                 cmd.SetGlobalFloat(_SkyTextureMipCounts, 0.0f);
+#endif // AMBIENT_PROBE
                 cmd.DisableShaderKeyword(PHYSICALLY_BASED_SKY);
                 cmd.DisableShaderKeyword(SKY_NOT_BAKING);
             }
