@@ -639,6 +639,29 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
         float ozoneMinimumAltitude, float ozoneLayerWidth, Vector3 ozoneExtinctionCoefficient,
         float R, float r, float cosTheta, bool alwaysAboveHorizon = false)
     {
+#if ENABLE_BURST_1_0_0_OR_NEWER
+        var atmosphericOpticalDepth = new Unity.Collections.NativeArray<float3>(1, Unity.Collections.Allocator.TempJob);
+
+        var computeAtmosphericOpticalDepthJob = new ComputeAtmosphericOpticalDepthJob0
+        {
+            H = new float2(airScaleHeight, aerosolScaleHeight),
+            R = R,
+            r = r,
+            airExtinctionCoefficient = airExtinctionCoefficient,
+            aerosolExtinctionCoefficient = aerosolExtinctionCoefficient,
+            ozoneExtinctionCoefficient = ozoneExtinctionCoefficient,
+            ozoneMinimumAltitude = ozoneMinimumAltitude,
+            ozoneLayerWidth = ozoneLayerWidth,
+            cosTheta = cosTheta,
+            alwaysAboveHorizon = alwaysAboveHorizon,
+            atmosphericOpticalDepth = atmosphericOpticalDepth,
+        };
+
+        Unity.Jobs.IJobExtensions.Run(computeAtmosphericOpticalDepthJob);
+        Vector3 output = atmosphericOpticalDepth[0];
+        atmosphericOpticalDepth.Dispose();
+        return output;
+#else
         Vector2 H = new Vector2(airScaleHeight, aerosolScaleHeight);
         Vector2 rcpH = new Vector2(Rcp(H.x), Rcp(H.y));
 
@@ -688,7 +711,79 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
         return new Vector3(optDepth.x * airExtinction.x + optDepth.y * aerosolExtinction + ozoneOD * ozoneExtinction.x,
             optDepth.x * airExtinction.y + optDepth.y * aerosolExtinction + ozoneOD * ozoneExtinction.y,
             optDepth.x * airExtinction.z + optDepth.y * aerosolExtinction + ozoneOD * ozoneExtinction.z);
+#endif // ENABLE_BURST_1_0_0_OR_NEWER
     }
+
+#if ENABLE_BURST_1_0_0_OR_NEWER
+    [Unity.Burst.BurstCompile(FloatMode = Unity.Burst.FloatMode.Fast)]
+    struct ComputeAtmosphericOpticalDepthJob0 : Unity.Jobs.IJob
+    {
+        [Unity.Collections.ReadOnly] public float2 H;
+        [Unity.Collections.ReadOnly] public float R;
+        [Unity.Collections.ReadOnly] public float r;
+        [Unity.Collections.ReadOnly] public float3 airExtinctionCoefficient;
+        [Unity.Collections.ReadOnly] public float aerosolExtinctionCoefficient;
+        [Unity.Collections.ReadOnly] public float3 ozoneExtinctionCoefficient;
+        [Unity.Collections.ReadOnly] public float ozoneMinimumAltitude;
+        [Unity.Collections.ReadOnly] public float ozoneLayerWidth;
+        [Unity.Collections.ReadOnly] public float cosTheta;
+        [Unity.Collections.ReadOnly] public bool alwaysAboveHorizon;
+
+        [Unity.Collections.WriteOnly] public Unity.Collections.NativeArray<float3> atmosphericOpticalDepth;
+
+        public void Execute()
+        {
+            float2 rcpH = new Vector2(Rcp(H.x), Rcp(H.y));
+
+            float2 z = r * rcpH;
+            float2 Z = R * rcpH;
+
+            float cosHoriz = ComputeCosineOfHorizonAngle(r, R);
+            float sinTheta = Mathf.Sqrt(Saturate(1 - cosTheta * cosTheta));
+
+            float2 ch;
+            ch.x = ChapmanUpperApprox(z.x, Mathf.Abs(cosTheta)) * Mathf.Exp(Z.x - z.x); // Rescaling adds 'exp'
+            ch.y = ChapmanUpperApprox(z.y, Mathf.Abs(cosTheta)) * Mathf.Exp(Z.y - z.y); // Rescaling adds 'exp'
+
+            if ((!alwaysAboveHorizon) && (cosTheta < cosHoriz)) // Below horizon, intersect sphere
+            {
+                float sinGamma = (r / R) * sinTheta;
+                float cosGamma = Mathf.Sqrt(Saturate(1 - sinGamma * sinGamma));
+
+                float2 ch_2;
+                ch_2.x = ChapmanUpperApprox(Z.x, cosGamma); // No need to rescale
+                ch_2.y = ChapmanUpperApprox(Z.y, cosGamma); // No need to rescale
+
+                ch = ch_2 - ch;
+            }
+            else if (cosTheta < 0)   // Above horizon, lower hemisphere
+            {
+                // z_0 = n * r_0 = (n * r) * sin(theta) = z * sin(theta).
+                // Ch(z, theta) = 2 * exp(z - z_0) * Ch(z_0, Pi/2) - Ch(z, Pi - theta).
+                float2 z_0 = z * sinTheta;
+                float2 b = new float2(Mathf.Exp(Z.x - z_0.x), Mathf.Exp(Z.x - z_0.x)); // Rescaling cancels out 'z' and adds 'Z'
+                float2 a;
+                a.x = 2 * ChapmanHorizontal(z_0.x);
+                a.y = 2 * ChapmanHorizontal(z_0.y);
+                float2 ch_2 = a * b;
+
+                ch = ch_2 - ch;
+            }
+
+            float2 optDepth = ch * H;
+
+            float ozoneOD = alwaysAboveHorizon ? ComputeOzoneOpticalDepth(R, r, cosTheta, ozoneMinimumAltitude, ozoneLayerWidth) : 0.0f;
+
+            float3 airExtinction = airExtinctionCoefficient;
+            float aerosolExtinction = aerosolExtinctionCoefficient;
+            float3 ozoneExtinction = ozoneExtinctionCoefficient;
+
+            atmosphericOpticalDepth[0] = new float3(optDepth.x * airExtinction.x + optDepth.y * aerosolExtinction + ozoneOD * ozoneExtinction.x,
+                optDepth.x * airExtinction.y + optDepth.y * aerosolExtinction + ozoneOD * ozoneExtinction.y,
+                optDepth.x * airExtinction.z + optDepth.y * aerosolExtinction + ozoneOD * ozoneExtinction.z);
+        }
+    }
+#endif // ENABLE_BURST_1_0_0_OR_NEWER
 
     // Computes transmittance along the light path segment.
     public static Vector3 EvaluateAtmosphericAttenuation(
@@ -750,6 +845,71 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
 
     // This is a very crude approximation, should be reworked
     // It estimates the result by integrating with 4 samples
+#if ENABLE_BURST_1_0_0_OR_NEWER
+    static float ComputeOzoneOpticalDepth(float r, float cosTheta, float distAlongRay)
+    {
+        float R = PlanetaryRadius();
+        float rcpR = rcp(R);
+
+        float2 tInner = IntersectSphere(R + k_DefaultOzoneMinimumAltitude, cosTheta, r, rcpR);
+        float2 tOuter = IntersectSphere(R + k_DefaultOzoneMinimumAltitude + k_DefaultOzoneLayerWidth, cosTheta, r, rcpR);
+        float tEntry, tEntry2, tExit, tExit2;
+
+        if (tInner.x < 0.0 && tInner.y >= 0.0) // Below the lower bound
+        {
+            // The ray starts at the intersection with the lower bound and ends at the intersection with the outer bound
+            tEntry = tInner.y;
+            tExit2 = tOuter.y;
+            tEntry2 = tExit = (tExit2 - tEntry) * 0.5f;
+        }
+        else // Inside or above the volume
+        {
+            // The ray starts at the intersection with the outer bound, or at 0 if we are inside
+            // The ray ends at the lower bound if we hit it, at the outer bound otherwise
+            tEntry = max(tOuter.x, 0.0f);
+            tExit = tInner.x >= 0.0 ? tInner.x : tOuter.y;
+
+            // If we hit the lower bound, we may intersect the volume a second time
+            if (tInner.x >= 0.0 && distAlongRay > tInner.y)
+            {
+                tEntry2 = tInner.y;
+                tExit2 = tOuter.y;
+            }
+            else
+            {
+                tExit2 = tExit;
+                tEntry2 = tExit = (tExit2 - tEntry) * 0.5f;
+            }
+        }
+
+        tExit = min(tExit, distAlongRay);
+        tExit2 = min(tExit2, distAlongRay);
+
+        float ozoneOD = 0.0f;
+        const uint count = 2;
+        float dt = max(tExit - tEntry, 0) * rcp(count);
+        float dt2 = max(tExit2 - tEntry2, 0) * rcp(count);
+
+        for (uint i = 0; i < count; i++)
+        {
+            float t = lerp(tEntry, tExit, (i + 0.5f) * rcp(count));
+            float t2 = lerp(tEntry2, tExit2, (i + 0.5f) * rcp(count));
+            float h = sqrt(r * r + t * (2 * r * cosTheta + t)) - R;
+            float h2 = sqrt(r * r + t2 * (2 * r * cosTheta + t2)) - R;
+
+            ozoneOD += OzoneDensity(h) * dt;
+            ozoneOD += OzoneDensity(h2) * dt2;
+        }
+
+        return ozoneOD * 0.6f;
+
+        float OzoneDensity(float height)
+        {
+            float2 ozoneScaleOffset = float2(2.0f / k_DefaultOzoneLayerWidth, -2.0f * k_DefaultOzoneMinimumAltitude / k_DefaultOzoneLayerWidth - 1.0f);
+            return saturate(1 - abs(height * ozoneScaleOffset.x + ozoneScaleOffset.y));
+        }
+    }
+#else
     float ComputeOzoneOpticalDepth(float r, float cosTheta, float distAlongRay)
     {
         float R = PlanetaryRadius();
@@ -807,9 +967,27 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
 
         return ozoneOD * 0.6f;
     }
+#endif // ENABLE_BURST_1_0_0_OR_NEWER
 
     float3 ComputeAtmosphericOpticalDepth(float r, float cosTheta, bool aboveHorizon)
     {
+#if ENABLE_BURST_1_0_0_OR_NEWER
+        var atmosphericOpticalDepth = new Unity.Collections.NativeArray<float3>(1, Unity.Collections.Allocator.TempJob);
+
+        var computeAtmosphericOpticalDepthJob = new ComputeAtmosphericOpticalDepthJob1
+        {
+            r = r,
+            cosTheta = cosTheta,
+            aboveHorizon = aboveHorizon,
+            atmosphericOpticalDepth = atmosphericOpticalDepth,
+        };
+
+        Unity.Jobs.IJobExtensions.Run(computeAtmosphericOpticalDepthJob);
+
+        float3 output = atmosphericOpticalDepth[0];
+        atmosphericOpticalDepth.Dispose();
+        return output;
+#else
         float2 n = float2(rcp(GetAirScaleHeight()), rcp(GetAerosolScaleHeight()));
         float2 H = float2(GetAirScaleHeight(), GetAerosolScaleHeight());
         float R = PlanetaryRadius();
@@ -854,7 +1032,68 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
         return optDepth.x * float3(GetAirExtinctionCoefficient())
             + optDepth.y * GetAerosolExtinctionCoefficient()
             + optDepth.z * float3(GetOzoneExtinctionCoefficient());
+#endif // ENABLE_BURST_1_0_0_OR_NEWER
     }
+
+#if ENABLE_BURST_1_0_0_OR_NEWER
+    [Unity.Burst.BurstCompile(FloatMode = Unity.Burst.FloatMode.Fast)]
+    struct ComputeAtmosphericOpticalDepthJob1 : Unity.Jobs.IJob
+    {
+        [Unity.Collections.ReadOnly] public float r;
+        [Unity.Collections.ReadOnly] public float cosTheta;
+        [Unity.Collections.ReadOnly] public bool aboveHorizon;
+
+        [Unity.Collections.WriteOnly] public Unity.Collections.NativeArray<float3> atmosphericOpticalDepth;
+
+        public void Execute()
+        {
+            float2 n = float2(rcp(k_DefaultAirScaleHeight), rcp(k_DefaultAerosolScaleHeight));
+            float2 H = float2(k_DefaultAirScaleHeight, k_DefaultAerosolScaleHeight);
+            float R = PlanetaryRadius();
+
+            float2 z = n * r;
+            float2 Z = n * R;
+
+            float sinTheta = sqrt(saturate(1 - cosTheta * cosTheta));
+
+            float2 ch;
+            ch.x = ChapmanUpperApprox(z.x, abs(cosTheta)) * exp(Z.x - z.x); // Rescaling adds 'exp'
+            ch.y = ChapmanUpperApprox(z.y, abs(cosTheta)) * exp(Z.y - z.y); // Rescaling adds 'exp'
+
+            if (!aboveHorizon) // Below horizon, intersect sphere
+            {
+                float sinGamma = (r / R) * sinTheta;
+                float cosGamma = sqrt(saturate(1 - sinGamma * sinGamma));
+
+                float2 ch_2;
+                ch_2.x = ChapmanUpperApprox(Z.x, cosGamma); // No need to rescale
+                ch_2.y = ChapmanUpperApprox(Z.y, cosGamma); // No need to rescale
+
+                ch = ch_2 - ch;
+            }
+            else if (cosTheta < 0)   // Above horizon, lower hemisphere
+            {
+                // z_0 = n * r_0 = (n * r) * sin(theta) = z * sin(theta).
+                // Ch(z, theta) = 2 * exp(z - z_0) * Ch(z_0, Pi/2) - Ch(z, Pi - theta).
+                float2 z_0 = z * sinTheta;
+                float2 b = exp(Z - z_0); // Rescaling cancels out 'z' and adds 'Z'
+                float2 a;
+                a.x = 2 * ChapmanHorizontal(z_0.x);
+                a.y = 2 * ChapmanHorizontal(z_0.y);
+                float2 ch_2 = a * b;
+
+                ch = ch_2 - ch;
+            }
+
+            float ozone = aboveHorizon ? ComputeOzoneOpticalDepth(r, cosTheta, float.MaxValue) : 0.0f;
+            float3 optDepth = float3(ch * H, ozone);
+
+            atmosphericOpticalDepth[0] = optDepth.x * float3(k_DefaultAirScatteringR, k_DefaultAirScatteringG, k_DefaultAirScatteringB)
+                + optDepth.y * ExtinctionFromZenithOpacityAndScaleHeight(ZenithOpacityFromExtinctionAndScaleHeight(10.0f / 1000000, k_DefaultAerosolScaleHeight), k_DefaultAerosolScaleHeight)
+                + optDepth.z * float3(new Vector3(0.00065f, 0.00188f, 0.00008f) / 1000.0f);
+        }
+    }
+#endif // ENABLE_BURST_1_0_0_OR_NEWER
 
     static float RayleighPhaseFunction(float cosTheta)
     {

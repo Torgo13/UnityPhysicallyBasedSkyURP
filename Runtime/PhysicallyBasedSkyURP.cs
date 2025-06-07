@@ -180,9 +180,11 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
     public override void Create()
     {
+#if AMBIENT_PROBE
         var stack = VolumeManager.instance.stack;
         PhysicallyBasedSky pbrSkyVolume = stack.GetComponent<PhysicallyBasedSky>();
         VisualEnvironment visualEnvVolume = stack.GetComponent<VisualEnvironment>();
+#endif // AMBIENT_PROBE
 
         // Validate sky shaders
         bool shadersValid = true;
@@ -798,7 +800,12 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
         private void UpdateMaterialProperties(Light mainLight, Camera camera, Material material)
         {
+#if OPTIMISATION_UNITY
+            var cameraPos = camera.transform.position;
+            float4 planetCenterRadius = visualEnvironment.GetPlanetCenterRadius(cameraPos);
+#else
             float4 planetCenterRadius = visualEnvironment.GetPlanetCenterRadius(camera.transform.position);
+#endif // OPTIMISATION_UNITY
 
             float R = planetCenterRadius.w;
             float D = pbrSky.GetMaximumAltitude();
@@ -848,7 +855,10 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             Shader.SetGlobalVector(_ZenithTint, new Vector3(pbrSky.zenithTint.value.r, pbrSky.zenithTint.value.g, pbrSky.zenithTint.value.b));
             Shader.SetGlobalFloat(_HorizonZenithShiftScale, expParams.y);
 
+#if OPTIMISATION_UNITY
+#else
             var cameraPos = camera.transform.position;
+#endif // OPTIMISATION_UNITY
             Vector3 planetCenter = planetCenterRadius.xyz;
             var planetPosRWS = planetCenter - cameraPos;
 
@@ -910,14 +920,14 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 var flareCosInner = Mathf.Cos(angularRadius);
                 float rcpSolidAngle = 1.0f / (Mathf.PI * 2.0f * (1 - flareCosInner));
 
-            #if URP_PHYSICAL_LIGHT
+#if URP_PHYSICAL_LIGHT
                 var color = mainLight.color.linear * mainLight.intensity;
 
                 bool isPhysicalLight = mainLight.GetComponent<AdditionalLightData>() != null;
                 color = isPhysicalLight ? color : color * PI;
-            #else
+#else
                 var color = mainLight.color.linear * mainLight.intensity * PI;
-            #endif
+#endif
 
                 color = mainLight.useColorTemperature ? color * Mathf.CorrelatedColorTemperatureToRGB(mainLight.colorTemperature) : color;
                 var surfaceColor = Vector4.one;
@@ -1044,7 +1054,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 return 0;
             }
         }
-        #endregion
+#endregion
     }
 
     /// <summary>
@@ -1127,9 +1137,9 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
         #region Non Render Graph Pass
         bool lutDataChanged;
-    #if UNITY_6000_0_OR_NEWER
+#if UNITY_6000_0_OR_NEWER
         [Obsolete]
-    #endif
+#endif
         public override void OnCameraSetup(CommandBuffer cmd, ref RenderingData renderingData)
         {
             RenderTextureDescriptor desc = renderingData.cameraData.cameraTargetDescriptor;
@@ -1143,27 +1153,27 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
             desc.width = k_MultiScatteringLutWidth;
             desc.height = k_MultiScatteringLutHeight;
-        #if UNITY_6000_0_OR_NEWER
+#if UNITY_6000_0_OR_NEWER
             RenderingUtils.ReAllocateHandleIfNeeded(ref multiScatteringLUTHandle, desc, FilterMode.Bilinear, TextureWrapMode.Clamp, name: _MultiScatteringLUT);
-        #else
+#else
             RenderingUtils.ReAllocateIfNeeded(ref multiScatteringLUTHandle, desc, FilterMode.Bilinear, TextureWrapMode.Clamp, name: _MultiScatteringLUT);
-        #endif
+#endif
 
             desc.width = k_SkyViewLutWidth;
             desc.height = k_SkyViewLutHeight;
-        #if UNITY_6000_0_OR_NEWER
+#if UNITY_6000_0_OR_NEWER
             RenderingUtils.ReAllocateHandleIfNeeded(ref skyViewLUTHandle, desc, FilterMode.Bilinear, TextureWrapMode.Clamp, name: _SkyViewLUT);
-        #else
+#else
             RenderingUtils.ReAllocateIfNeeded(ref skyViewLUTHandle, desc, FilterMode.Bilinear, TextureWrapMode.Clamp, name: _SkyViewLUT);
-        #endif
+#endif
 
             desc.width = k_GroundIrradianceTableSize;
             desc.height = 1;
-        #if UNITY_6000_0_OR_NEWER
+#if UNITY_6000_0_OR_NEWER
             lutDataChanged = RenderingUtils.ReAllocateHandleIfNeeded(ref groundIrradianceHandle, desc, FilterMode.Bilinear, TextureWrapMode.Clamp, name: _GroundIrradianceTexture);
-        #else
+#else
             lutDataChanged = RenderingUtils.ReAllocateIfNeeded(ref groundIrradianceHandle, desc, FilterMode.Bilinear, TextureWrapMode.Clamp, name: _GroundIrradianceTexture);
-        #endif
+#endif
 
             // Switched Y and Z dimension to reduce draw calls.
             desc.memoryless = RenderTextureMemoryless.None;
@@ -1171,47 +1181,47 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             desc.width = halfResolutionLuts ? k_InScatteredRadianceTableSizeX / 2 : k_InScatteredRadianceTableSizeX;
             desc.height = halfResolutionLuts ? (k_InScatteredRadianceTableSizeZ * k_InScatteredRadianceTableSizeW) / 2 : k_InScatteredRadianceTableSizeZ * k_InScatteredRadianceTableSizeW;
             desc.volumeDepth = halfResolutionLuts ? k_InScatteredRadianceTableSizeY / 2 : k_InScatteredRadianceTableSizeY;
-        #if UNITY_6000_0_OR_NEWER
+#if UNITY_6000_0_OR_NEWER
             lutDataChanged |= RenderingUtils.ReAllocateHandleIfNeeded(ref airSingleScatteringHandle, desc, FilterMode.Bilinear, TextureWrapMode.Clamp, name: _AirSingleScatteringTexture);
             lutDataChanged |= RenderingUtils.ReAllocateHandleIfNeeded(ref aerosolSingleScatteringHandle, desc, FilterMode.Bilinear, TextureWrapMode.Clamp, name: _AerosolSingleScatteringTexture);
             lutDataChanged |= RenderingUtils.ReAllocateHandleIfNeeded(ref multipleScatteringHandle, desc, FilterMode.Bilinear, TextureWrapMode.Clamp, name: _MultipleScatteringTexture);
-        #else
+#else
             lutDataChanged |= RenderingUtils.ReAllocateIfNeeded(ref airSingleScatteringHandle, desc, FilterMode.Bilinear, TextureWrapMode.Clamp, name: _AirSingleScatteringTexture);
             lutDataChanged |= RenderingUtils.ReAllocateIfNeeded(ref aerosolSingleScatteringHandle, desc, FilterMode.Bilinear, TextureWrapMode.Clamp, name: _AerosolSingleScatteringTexture);
             lutDataChanged |= RenderingUtils.ReAllocateIfNeeded(ref multipleScatteringHandle, desc, FilterMode.Bilinear, TextureWrapMode.Clamp, name: _MultipleScatteringTexture);
-        #endif
+#endif
 
             // Unused
             /*
             desc.width = k_AtmosphericScatteringLutWidth;
             desc.height = k_AtmosphericScatteringLutHeight;
             desc.volumeDepth = k_AtmosphericScatteringLutDepth;
-        #if UNITY_6000_0_OR_NEWER
+#if UNITY_6000_0_OR_NEWER
             RenderingUtils.ReAllocateHandleIfNeeded(ref atmosphericScatteringLUTHandle, desc, FilterMode.Trilinear, TextureWrapMode.Clamp, name: _AtmosphericScatteringLUT);
             RenderingUtils.ReAllocateHandleIfNeeded(ref skyTransmittanceHandle, desc, FilterMode.Point, TextureWrapMode.Clamp, name: "_SkyTransmittance");
-        #else
+#else
             RenderingUtils.ReAllocateIfNeeded(ref atmosphericScatteringLUTHandle, desc, FilterMode.Point, TextureWrapMode.Clamp, name: _AtmosphericScatteringLUT);
             RenderingUtils.ReAllocateIfNeeded(ref skyTransmittanceHandle, desc, FilterMode.Point, TextureWrapMode.Clamp, name: "_SkyTransmittance");
-        #endif
+#endif
 
             desc.dimension = TextureDimension.Tex2D;
             desc.volumeDepth = 1;
-        #if UNITY_6000_0_OR_NEWER
+#if UNITY_6000_0_OR_NEWER
             RenderingUtils.ReAllocateHandleIfNeeded(ref atmosphericScatteringSliceHandle, desc, FilterMode.Point, TextureWrapMode.Clamp, name: "_AtmosphericScatteringSlice");
             RenderingUtils.ReAllocateHandleIfNeeded(ref skyTransmittanceSliceHandle, desc, FilterMode.Point, TextureWrapMode.Clamp, name: "_SkyTransmittanceSlice");
-        #else
+#else
             RenderingUtils.ReAllocateIfNeeded(ref atmosphericScatteringSliceHandle, desc, FilterMode.Point, TextureWrapMode.Clamp, name: "_AtmosphericScatteringSlice");
             RenderingUtils.ReAllocateIfNeeded(ref skyTransmittanceSliceHandle, desc, FilterMode.Point, TextureWrapMode.Clamp, name: "_SkyTransmittanceSlice");
-        #endif
+#endif
             */
 
             lutDataChanged |= HasLutDataChanged();
             m_LastPrecomputationParamHash = lutDataChanged ? 0 : m_LastPrecomputationParamHash;
         }
 
-    #if UNITY_6000_0_OR_NEWER
+#if UNITY_6000_0_OR_NEWER
         [Obsolete]
-    #endif
+#endif
         public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
         {
             CommandBuffer cmd = CommandBufferPool.Get();
@@ -1304,7 +1314,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         }
         #endregion
 
-    #if UNITY_6000_0_OR_NEWER
+#if UNITY_6000_0_OR_NEWER
         #region Render Graph Pass
         private class PassData
         {
@@ -1528,7 +1538,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             }
         }
         #endregion
-    #endif
+#endif
 
         #region Shared
         public void Dispose()
@@ -1649,9 +1659,9 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         }
 
         #region Non Render Graph Pass
-    #if UNITY_6000_0_OR_NEWER
+#if UNITY_6000_0_OR_NEWER
         [Obsolete]
-    #endif
+#endif
         public override void OnCameraSetup(CommandBuffer cmd, ref RenderingData renderingData)
         {
             bool isFogEnabled = fog != null && fog.IsActive();
@@ -1661,9 +1671,9 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             ConfigureInput(ScriptableRenderPassInput.Depth);
         }
 
-    #if UNITY_6000_0_OR_NEWER
+#if UNITY_6000_0_OR_NEWER
         [Obsolete]
-    #endif
+#endif
         public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
         {
             CommandBuffer cmd = CommandBufferPool.Get();
@@ -1690,7 +1700,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         }
         #endregion
 
-    #if UNITY_6000_0_OR_NEWER
+#if UNITY_6000_0_OR_NEWER
         #region Render Graph Pass
         private class PassData
         {
@@ -1745,7 +1755,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             }
         }
         #endregion
-    #endif
+#endif
 
         #region Shared
         public void Dispose()
@@ -1813,14 +1823,14 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             float height = cameraTargetHandle.rt.height;
             if (cameraTargetHandle.rt.useDynamicScale)
             {
-             #if ENABLE_VR && ENABLE_XR_MODULE
+#if ENABLE_VR && ENABLE_XR_MODULE
                 if (cameraTargetHandle.rt.vrUsage != VRTextureUsage.None)
                 {
                     width = XRSystem.ScaleTextureWidthForXR(cameraTargetHandle.rt);
                     height = XRSystem.ScaleTextureHeightForXR(cameraTargetHandle.rt);
                 }
                 else
-            #endif
+#endif
                 {
                     width *= ScalableBufferManager.widthScaleFactor;
                     height *= ScalableBufferManager.heightScaleFactor;
@@ -1856,17 +1866,17 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         }
 
         #region Non Render Graph Pass
-    #if UNITY_6000_0_OR_NEWER
+#if UNITY_6000_0_OR_NEWER
         [Obsolete]
-    #endif
+#endif
         public override void OnCameraSetup(CommandBuffer cmd, ref RenderingData renderingData)
         {
 
         }
 
-    #if UNITY_6000_0_OR_NEWER
+#if UNITY_6000_0_OR_NEWER
         [Obsolete]
-    #endif
+#endif
         public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
         {
             CommandBuffer cmd = CommandBufferPool.Get();
@@ -1888,7 +1898,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         }
         #endregion
 
-    #if UNITY_6000_0_OR_NEWER
+#if UNITY_6000_0_OR_NEWER
         #region Render Graph Pass
 
         private class PassData
@@ -1922,7 +1932,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             }
         }
         #endregion
-    #endif
+#endif
 
         #region Shared
         public void Dispose()
@@ -1979,9 +1989,9 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         // Cubemap Order: right, left, up, down, back, front. (+X, -X, +Y, -Y, +Z, -Z)
         private static readonly Matrix4x4[] skyViews = { rightView, leftView, upView, downView, backView, frontView };
 
-    #if UNITY_6000_0_OR_NEWER
+#if UNITY_6000_0_OR_NEWER
         private readonly RendererListHandle[] rendererListHandles = new RendererListHandle[6];
-    #endif
+#endif
         private readonly Matrix4x4[] skyViewMatrices = new Matrix4x4[6];
 
 
@@ -1997,9 +2007,9 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         }
 
         #region Non Render Graph Pass
-    #if UNITY_6000_0_OR_NEWER
+#if UNITY_6000_0_OR_NEWER
         [Obsolete]
-    #endif
+#endif
         public override void OnCameraSetup(CommandBuffer cmd, ref RenderingData renderingData)
         {
             RenderTextureDescriptor desc = renderingData.cameraData.cameraTargetDescriptor;
@@ -2016,22 +2026,22 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
             bool hasVolumetricClouds = cloudsMaterial != null && Shader.IsKeywordEnabled(VOLUMETRIC_CLOUDS);
 
-        #if UNITY_6000_0_OR_NEWER
+#if UNITY_6000_0_OR_NEWER
             RenderingUtils.ReAllocateHandleIfNeeded(ref probeColorHandle, desc, FilterMode.Trilinear, TextureWrapMode.Clamp, name: _GlossyEnvironmentCubeMap);
             if (hasVolumetricClouds)
                 RenderingUtils.ReAllocateHandleIfNeeded(ref skyColorHandle, desc, FilterMode.Trilinear, TextureWrapMode.Clamp, name: _SkyTexture);
-        #else
+#else
             RenderingUtils.ReAllocateIfNeeded(ref probeColorHandle, desc, FilterMode.Trilinear, TextureWrapMode.Clamp, name: _GlossyEnvironmentCubeMap);
             if (hasVolumetricClouds)
                 RenderingUtils.ReAllocateIfNeeded(ref skyColorHandle, desc, FilterMode.Trilinear, TextureWrapMode.Clamp, name: _SkyTexture);
-        #endif
+#endif
 
             ConfigureTarget(probeColorHandle, probeColorHandle);
         }
 
-    #if UNITY_6000_0_OR_NEWER
+#if UNITY_6000_0_OR_NEWER
         [Obsolete]
-    #endif
+#endif
         public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
         {
             CommandBuffer cmd = CommandBufferPool.Get();
@@ -2145,7 +2155,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         }
         #endregion
 
-    #if UNITY_6000_0_OR_NEWER
+#if UNITY_6000_0_OR_NEWER
         #region Render Graph Pass
         private class PassData
         {
@@ -2337,7 +2347,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             }
         }
         #endregion
-    #endif
+#endif
 
         #region Shared
         public void Dispose()
