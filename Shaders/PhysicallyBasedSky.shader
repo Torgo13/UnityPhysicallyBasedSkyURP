@@ -2,7 +2,9 @@ Shader "Hidden/Skybox/PhysicallyBasedSky"
 {
     Properties
     {
-
+        [MainTexture][NoScaleOffset] _BaseMap("Texture", 2D) = "black" {}
+        [HideInInspector] _SnapshotData ("SnapshotData", Vector) = (0,0,0)
+        _ShadowIntensity ("Shadow Intensity", Float) = 0.2
     }
 
     SubShader
@@ -23,6 +25,130 @@ Shader "Hidden/Skybox/PhysicallyBasedSky"
             #include "./PhysicallyBasedSkyEvaluation.hlsl"
             #include "./AtmosphericScattering.hlsl"
 
+            #pragma multi_compile_fragment _ _TERRAIN _SHADOWS
+            
+            float4 _SnapshotData; // x: boundsMin.x, y: boundsMin.z, z: 1 / TEXTURE_SIZE (1 / 4096), w: FogFactor
+            half4 _TerrainData; // x: _TerrainMinDistance, y: _TerrainMaxAltitude, z: _FadeIn, w: _Quality
+
+#if defined(_TERRAIN) || defined(_SHADOWS)
+            #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Macros.hlsl"
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
+            
+            TEXTURE2D(_BaseMap);
+            SAMPLER(sampler_BaseMap);
+            
+#if defined(_SHADOWS)
+            half _ShadowIntensity;
+#endif // defined(_SHADOWS)
+
+            half _VPDaylightShadowAtten;
+            half _VPAmbientLight;
+            half _VPFogData;            
+
+            half4 FarChunks(const float4 temp, const float2 position, const half3 rayDir)
+            {
+                half4 color = half4(0, 0, 0, 0);
+                //if (rayDir.y > atan2(_TerrainData.y - _WorldSpaceCameraPos.y, _TerrainData.x))
+                //    return color;
+
+                // sample the terrain texture
+                //float maxDistManhattan = temp.x; // half(2) / _SnapshotData.z;
+                //float2 bounds = temp.yz; // _SnapshotData.xy * _SnapshotData.z;
+
+                float3 wpos;
+                float t = _TerrainData.x + frac(dot(float2(2.4084507, 3.2535211), position));
+                const float incr = 1.015;
+                for (; t < temp.x; t = t * incr + incr) {
+                    wpos = _WorldSpaceCameraPos.xyz + rayDir * t;
+                    if (wpos.y > _TerrainData.y) {
+                        return color; // Above max terrain height
+                    }
+
+                    wpos = floor(wpos) + half(0.5);
+                    float2 tpos = wpos.xz * _SnapshotData.z - temp.yz;
+                    float4 terrain = SAMPLE_TEXTURE2D_LOD(_BaseMap, sampler_BaseMap, tpos, 0);
+                    float terrainAltitude = terrain.a * _TerrainData.y;
+                    if (wpos.y < terrainAltitude + half(0.5)) {
+                        color = half4(terrain.rgb, 1.0);
+                        break;
+                    }
+                }
+
+                if (color.a == 0) {
+                    return color;
+                }
+
+                // refine hit position using binary search                
+                float t1 = t;
+                float t0 = (t / incr) - 1;
+                float3 hpos = wpos;
+                half ao = half(0.9999);
+                for (int i = 0; i < _TerrainData.w; i++) {
+                    t = (t1 + t0) * half(0.5);
+                    hpos = _WorldSpaceCameraPos.xyz + rayDir * t;
+                    wpos = floor(hpos) + half(0.5);
+                    float2 tpos = wpos.xz * _SnapshotData.z - temp.yz;
+                    float4 terrain = SAMPLE_TEXTURE2D_LOD(_BaseMap, sampler_BaseMap, tpos, 0);
+                    float terrainAltitude = terrain.a * _TerrainData.y;
+                    if (wpos.y < terrainAltitude + half(0.5)) {
+                        t1 = t;
+                        color = half4(terrain.rgb, 1.0);
+                        ao = hpos.y;
+                    } else {
+                        t0 = t;
+                    }
+                }
+
+                ao = frac(ao);
+                ao = half(0.25) + ao * half(0.75);
+                ao = half(1.05) - (half(1.0) - ao) * (half(1.0) - ao);
+                half aoFade = max(half(0), (t - half(256)) * half(0.03125));
+                ao = saturate(ao + aoFade);
+
+                // compute if pixel is under shadow by casting a ray from pixel to the Sun
+                half atten = half(1.0);
+#if defined(_SHADOWS)
+                for (float j = 2.0; j < temp.x; j = j * incr + incr) {
+                    float3 rpos = hpos + _MainLightPosition.xyz * j;
+                    if (rpos.y > _TerrainData.y) {
+                        break; // Above terrain max altitude so in direct light
+                    }
+                    
+                    float2 tpos = rpos.xz * _SnapshotData.z - temp.yz;
+                    float terrain = SAMPLE_TEXTURE2D_LOD(_BaseMap, sampler_BaseMap, tpos, 0).a;
+                    float terrainAltitude = terrain * _TerrainData.y;
+                    if (rpos.y < terrainAltitude) {
+                        atten = _ShadowIntensity;
+                        break;
+                    }
+                }
+#endif // defined(_SHADOWS)
+              
+                // compute normal
+                half3 dc = abs(hpos - wpos);
+                dc.y *= half(1.05); // avoid artifacts at the edges
+                half3 signs = -sign(rayDir);
+                half3 norm = half3(0, signs.y, 0);
+                if (dc.z > dc.x && dc.z > dc.y) norm = half3(0, 0, signs.z);
+                if (dc.x > dc.z && dc.x > dc.y) norm = half3(signs.x, 0, 0);
+
+                // day/night cycle matching regular VP shader lighting
+                half NdotL = saturate(dot(_MainLightPosition.xyz, norm) * half(0.5) + half(0.5));
+                half lightAtten = saturate( (atten * NdotL + _MainLightPosition.y * _VPDaylightShadowAtten) + _VPAmbientLight);
+                //color.rgb *= min((lightAtten * ao) * _MainLightColor.rgb + _VPAmbientLight, 1.2);
+                color.rgb *= saturate((lightAtten * ao) * _MainLightColor.rgb + _VPAmbientLight);
+
+                // add fog
+                half fogFactor = (_TerrainData.z * 512.0) * (_SnapshotData.w / t);
+                half heightFog = hpos.y / _TerrainData.y;
+                heightFog *= heightFog;
+                half fog = saturate(fogFactor * fogFactor);
+
+                return half4(color.rgb * fog, fog + fogFactor * heightFog);
+            }
+#endif // defined(_TERRAIN)
+
             #pragma vertex vert
             #pragma fragment frag
 
@@ -32,6 +158,7 @@ Shader "Hidden/Skybox/PhysicallyBasedSky"
             struct Attributes
             {
                 float4 positionOS : POSITION;
+                float3 viewDir    : TEXCOORD0;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
@@ -39,6 +166,8 @@ Shader "Hidden/Skybox/PhysicallyBasedSky"
             {
                 float4 positionCS : SV_POSITION;
                 float3 positionWS : TEXCOORD0;
+                float3 viewDir    : TEXCOORD1;
+                float4 temp       : TEXCOORD2;
                 UNITY_VERTEX_OUTPUT_STEREO
             };
 
@@ -52,6 +181,12 @@ Shader "Hidden/Skybox/PhysicallyBasedSky"
                 output.positionCS = TransformObjectToHClip(input.positionOS.xyz);
                 // Calculate the virtual position of skybox for view direction calculation
                 output.positionWS = TransformObjectToWorld(input.positionOS.xyz);
+                
+                float maxDistManhattan = 2.0 / _SnapshotData.z;
+                float2 bounds = _SnapshotData.xy * _SnapshotData.z;
+                float view = atan2(_TerrainData.y - _WorldSpaceCameraPos.y, _TerrainData.x);
+                output.temp = float4(maxDistManhattan, bounds, view);
+                output.viewDir = normalize(output.positionWS - _WorldSpaceCameraPos);
 
                 return output;
             }
@@ -187,6 +322,7 @@ Shader "Hidden/Skybox/PhysicallyBasedSky"
                         */
                     }
                 }
+                /*
                 else if (tFrag == FLT_INF) // See the stars?
                 {
                     UNITY_BRANCH
@@ -197,6 +333,7 @@ Shader "Hidden/Skybox/PhysicallyBasedSky"
                         radiance += _SpaceEmissionMultiplier * ts.rgb;
                     }
                 }
+                */
 
                 float3 skyColor = 0, skyOpacity = 0;
 
@@ -217,10 +354,26 @@ Shader "Hidden/Skybox/PhysicallyBasedSky"
             float4 frag(Varyings input) : SV_Target
             {
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
+
+#if defined(_TERRAIN) || defined(_SHADOWS)
+                //if (input.viewDir.y <= input.temp.w)
+                {
+                    float4 farChunks = FarChunks(input.temp, input.positionCS.xy, input.viewDir);
+                    if (farChunks.a >= half(1.0))
+                        return farChunks;
+                }
+#endif // defined(_TERRAIN)
+
                 float2 screenUV = GetNormalizedScreenSpaceUV(input.positionCS);
 
                 float4 color = RenderSky(screenUV, input.positionWS);
+                
+#if REAL_IS_HALF
+                // Clamp any half.inf+ to HALF_MAX
+                return min(color, HALF_MAX);
+#else
                 return color;
+#endif // REAL_IS_HALF
             }
             ENDHLSL
         }
@@ -396,6 +549,7 @@ Shader "Hidden/Skybox/PhysicallyBasedSky"
                         */
                     }
                 }
+                /*
                 else if (tFrag == FLT_INF) // See the stars?
                 {
                     UNITY_BRANCH
@@ -406,6 +560,7 @@ Shader "Hidden/Skybox/PhysicallyBasedSky"
                         radiance += _SpaceEmissionMultiplier * ts.rgb;
                     }
                 }
+                */
 
                 float3 skyColor = 0, skyOpacity = 0;
 
