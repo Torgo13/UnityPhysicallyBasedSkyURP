@@ -46,27 +46,27 @@ Shader "Hidden/Skybox/PhysicallyBasedSky"
             half _VPAmbientLight;
             half _VPFogData;            
 
-            half4 FarChunks(const float4 temp, const float2 position, const half3 rayDir)
+            half4 FarChunks(const float3 temp, const float2 position, const half3 rayDir)
             {
                 half4 color = half4(0, 0, 0, 0);
                 //if (rayDir.y > atan2(_TerrainData.y - _WorldSpaceCameraPos.y, _TerrainData.x))
                 //    return color;
 
                 // sample the terrain texture
-                //float maxDistManhattan = temp.x; // half(2) / _SnapshotData.z;
-                //float2 bounds = temp.yz; // _SnapshotData.xy * _SnapshotData.z;
+                //float maxDistManhattan = temp.z; // half(2) / _SnapshotData.z;
+                //float2 bounds = temp.xy; // _SnapshotData.xy;
 
                 float3 wpos;
                 float t = _TerrainData.x + frac(dot(float2(2.4084507, 3.2535211), position));
                 const float incr = 1.015;
-                for (; t < temp.x; t = t * incr + incr) {
+                for (; t < temp.z; t = t * incr + incr) {
                     wpos = _WorldSpaceCameraPos.xyz + rayDir * t;
                     if (wpos.y > _TerrainData.y) {
                         return color; // Above max terrain height
                     }
 
                     wpos = floor(wpos) + half(0.5);
-                    float2 tpos = wpos.xz * _SnapshotData.z - temp.yz;
+                    float2 tpos = wpos.xz * _SnapshotData.z - temp.xy;
                     float4 terrain = SAMPLE_TEXTURE2D_LOD(_BaseMap, sampler_BaseMap, tpos, 0);
                     float terrainAltitude = terrain.a * _TerrainData.y;
                     if (wpos.y < terrainAltitude + half(0.5)) {
@@ -88,7 +88,7 @@ Shader "Hidden/Skybox/PhysicallyBasedSky"
                     t = (t1 + t0) * half(0.5);
                     hpos = _WorldSpaceCameraPos.xyz + rayDir * t;
                     wpos = floor(hpos) + half(0.5);
-                    float2 tpos = wpos.xz * _SnapshotData.z - temp.yz;
+                    float2 tpos = wpos.xz * _SnapshotData.z - temp.xy;
                     float4 terrain = SAMPLE_TEXTURE2D_LOD(_BaseMap, sampler_BaseMap, tpos, 0);
                     float terrainAltitude = terrain.a * _TerrainData.y;
                     if (wpos.y < terrainAltitude + half(0.5)) {
@@ -109,13 +109,13 @@ Shader "Hidden/Skybox/PhysicallyBasedSky"
                 // compute if pixel is under shadow by casting a ray from pixel to the Sun
                 half atten = half(1.0);
 #if defined(_SHADOWS)
-                for (float j = 2.0; j < temp.x; j = j * incr + incr) {
+                for (float j = 2.0; j < temp.z; j = j * incr + incr) {
                     float3 rpos = hpos + _MainLightPosition.xyz * j;
                     if (rpos.y > _TerrainData.y) {
                         break; // Above terrain max altitude so in direct light
                     }
                     
-                    float2 tpos = rpos.xz * _SnapshotData.z - temp.yz;
+                    float2 tpos = rpos.xz * _SnapshotData.z - temp.xy;
                     float terrain = SAMPLE_TEXTURE2D_LOD(_BaseMap, sampler_BaseMap, tpos, 0).a;
                     float terrainAltitude = terrain * _TerrainData.y;
                     if (rpos.y < terrainAltitude) {
@@ -183,9 +183,9 @@ Shader "Hidden/Skybox/PhysicallyBasedSky"
                 output.positionWS = TransformObjectToWorld(input.positionOS.xyz);
                 
                 float maxDistManhattan = 2.0 / _SnapshotData.z;
-                float2 bounds = _SnapshotData.xy * _SnapshotData.z;
+                float2 bounds = _SnapshotData.xy;
                 float view = atan2(_TerrainData.y - _WorldSpaceCameraPos.y, _TerrainData.x);
-                output.temp = float4(maxDistManhattan, bounds, view);
+                output.temp = float4(bounds, maxDistManhattan, view);
                 output.viewDir = normalize(output.positionWS - _WorldSpaceCameraPos);
 
                 return output;
@@ -356,17 +356,24 @@ Shader "Hidden/Skybox/PhysicallyBasedSky"
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
 
 #if defined(_TERRAIN) || defined(_SHADOWS)
-                //if (input.viewDir.y <= input.temp.w)
+                float4 farChunks;
+                if (input.viewDir.y <= input.temp.w)
                 {
-                    float4 farChunks = FarChunks(input.temp, input.positionCS.xy, input.viewDir);
+                    farChunks = FarChunks(input.temp.xyz, input.positionCS.xy, input.viewDir);
+
+                    // Skip PBR Sky if terrain is fully opaque
                     if (farChunks.a >= half(1.0))
                         return farChunks;
                 }
-#endif // defined(_TERRAIN)
+#endif // defined(_TERRAIN) || defined(_SHADOWS)
 
                 float2 screenUV = GetNormalizedScreenSpaceUV(input.positionCS);
 
                 float4 color = RenderSky(screenUV, input.positionWS);
+                
+#if defined(_TERRAIN) || defined(_SHADOWS)
+                color = lerp(color, farChunks, farChunks.a);
+#endif // defined(_TERRAIN) || defined(_SHADOWS)
                 
 #if REAL_IS_HALF
                 // Clamp any half.inf+ to HALF_MAX
