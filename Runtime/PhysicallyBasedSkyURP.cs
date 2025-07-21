@@ -147,6 +147,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         set { m_Precomputation = value; }
     }
 
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
     public struct CelestialBodyData
     {
         public Vector3 color;

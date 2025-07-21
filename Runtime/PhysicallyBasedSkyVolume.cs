@@ -640,7 +640,8 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
         float R, float r, float cosTheta, bool alwaysAboveHorizon = false)
     {
 #if ENABLE_BURST_1_0_0_OR_NEWER
-        var atmosphericOpticalDepth = new Unity.Collections.NativeArray<float3>(1, Unity.Collections.Allocator.TempJob);
+        var atmosphericOpticalDepth = new Unity.Collections.NativeArray<float3>(1, Unity.Collections.Allocator.TempJob,
+            Unity.Collections.NativeArrayOptions.UninitializedMemory);
 
         var computeAtmosphericOpticalDepthJob = new ComputeAtmosphericOpticalDepthJob0
         {
@@ -745,7 +746,7 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
             ch.x = ChapmanUpperApprox(z.x, abs(cosTheta)) * exp(Z.x - z.x); // Rescaling adds 'exp'
             ch.y = ChapmanUpperApprox(z.y, abs(cosTheta)) * exp(Z.y - z.y); // Rescaling adds 'exp'
 
-            Unity.Burst.CompilerServices.Hint.Assume(!alwaysAboveHorizon);
+            Unity.Burst.CompilerServices.Hint.Assume(alwaysAboveHorizon);
 
             if ((!alwaysAboveHorizon) && (cosTheta < cosHoriz)) // Below horizon, intersect sphere
             {
@@ -843,70 +844,8 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
     // This is a very crude approximation, should be reworked
     // It estimates the result by integrating with 4 samples
 #if ENABLE_BURST_1_0_0_OR_NEWER
-    static float ComputeOzoneOpticalDepth(float r, float cosTheta, float distAlongRay)
-    {
-        float R = PlanetaryRadius();
-        float rcpR = rcp(R);
-
-        float2 tInner = IntersectSphere(R + k_DefaultOzoneMinimumAltitude, cosTheta, r, rcpR);
-        float2 tOuter = IntersectSphere(R + k_DefaultOzoneMinimumAltitude + k_DefaultOzoneLayerWidth, cosTheta, r, rcpR);
-        float tEntry, tEntry2, tExit, tExit2;
-
-        if (tInner.x < 0.0 && tInner.y >= 0.0) // Below the lower bound
-        {
-            // The ray starts at the intersection with the lower bound and ends at the intersection with the outer bound
-            tEntry = tInner.y;
-            tExit2 = tOuter.y;
-            tEntry2 = tExit = (tExit2 - tEntry) * 0.5f;
-        }
-        else // Inside or above the volume
-        {
-            // The ray starts at the intersection with the outer bound, or at 0 if we are inside
-            // The ray ends at the lower bound if we hit it, at the outer bound otherwise
-            tEntry = max(tOuter.x, 0.0f);
-            tExit = tInner.x >= 0.0 ? tInner.x : tOuter.y;
-
-            // If we hit the lower bound, we may intersect the volume a second time
-            if (tInner.x >= 0.0 && distAlongRay > tInner.y)
-            {
-                tEntry2 = tInner.y;
-                tExit2 = tOuter.y;
-            }
-            else
-            {
-                tExit2 = tExit;
-                tEntry2 = tExit = (tExit2 - tEntry) * 0.5f;
-            }
-        }
-
-        tExit = min(tExit, distAlongRay);
-        tExit2 = min(tExit2, distAlongRay);
-
-        float ozoneOD = 0.0f;
-        const uint count = 2;
-        float dt = max(tExit - tEntry, 0) * rcp(count);
-        float dt2 = max(tExit2 - tEntry2, 0) * rcp(count);
-
-        for (uint i = 0; i < count; i++)
-        {
-            float t = lerp(tEntry, tExit, (i + 0.5f) * rcp(count));
-            float t2 = lerp(tEntry2, tExit2, (i + 0.5f) * rcp(count));
-            float h = sqrt(r * r + t * (2 * r * cosTheta + t)) - R;
-            float h2 = sqrt(r * r + t2 * (2 * r * cosTheta + t2)) - R;
-
-            ozoneOD += OzoneDensity(h) * dt;
-            ozoneOD += OzoneDensity(h2) * dt2;
-        }
-
-        return ozoneOD * 0.6f;
-
-        float OzoneDensity(float height)
-        {
-            float2 ozoneScaleOffset = float2(2.0f / k_DefaultOzoneLayerWidth, -2.0f * k_DefaultOzoneMinimumAltitude / k_DefaultOzoneLayerWidth - 1.0f);
-            return saturate(1 - abs(height * ozoneScaleOffset.x + ozoneScaleOffset.y));
-        }
-    }
-#else
+    static
+#endif // ENABLE_BURST_1_0_0_OR_NEWER
     float ComputeOzoneOpticalDepth(float r, float cosTheta, float distAlongRay)
     {
         float R = PlanetaryRadius();
@@ -963,13 +902,31 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
         }
 
         return ozoneOD * 0.6f;
-    }
+
+#if ENABLE_BURST_1_0_0_OR_NEWER
+        static float GetOzoneLayerMinimumAltitude()
+        {
+            return k_DefaultOzoneMinimumAltitude;
+        }
+
+        static float GetOzoneLayerWidth()
+        {
+            return k_DefaultOzoneLayerWidth;
+        }
+
+        static float OzoneDensity(float height)
+        {
+            float2 ozoneScaleOffset = float2(2.0f / k_DefaultOzoneLayerWidth, -2.0f * k_DefaultOzoneMinimumAltitude / k_DefaultOzoneLayerWidth - 1.0f);
+            return saturate(1 - abs(height * ozoneScaleOffset.x + ozoneScaleOffset.y));
+        }
 #endif // ENABLE_BURST_1_0_0_OR_NEWER
+    }
 
     float3 ComputeAtmosphericOpticalDepth(float r, float cosTheta, bool aboveHorizon)
     {
 #if ENABLE_BURST_1_0_0_OR_NEWER
-        var atmosphericOpticalDepth = new Unity.Collections.NativeArray<float3>(1, Unity.Collections.Allocator.TempJob);
+        var atmosphericOpticalDepth = new Unity.Collections.NativeArray<float3>(1, Unity.Collections.Allocator.TempJob,
+            Unity.Collections.NativeArrayOptions.UninitializedMemory);
 
         var computeAtmosphericOpticalDepthJob = new ComputeAtmosphericOpticalDepthJob1
         {
@@ -1057,7 +1014,7 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
             ch.x = ChapmanUpperApprox(z.x, abs(cosTheta)) * exp(Z.x - z.x); // Rescaling adds 'exp'
             ch.y = ChapmanUpperApprox(z.y, abs(cosTheta)) * exp(Z.y - z.y); // Rescaling adds 'exp'
 
-            Unity.Burst.CompilerServices.Hint.Assume(!aboveHorizon);
+            Unity.Burst.CompilerServices.Hint.Assume(aboveHorizon);
 
             if (!aboveHorizon) // Below horizon, intersect sphere
             {
@@ -1139,6 +1096,7 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
         return float2(x, y);
     }
 
+    static
     float3 IntegrateOverSegment(float3 S, float3 transmittanceOverSegment, float3 transmittance, float3 sigmaE)
     {
         // https://www.shadertoy.com/view/XlBSRz
@@ -1191,6 +1149,7 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
         return max(extinction, FLT_MIN_NORMAL);
     }
 
+    static
     float3 TransmittanceFromOpticalDepth(float3 opticalDepth)
     {
         return exp(-opticalDepth);
@@ -1287,6 +1246,7 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
         }
     }
 
+    static
     float3 ExpLerp(float3 A, float3 B, float t, float x, float y)
     {
         // Remap t: (exp(10 k t) - 1) / (exp(10 k) - 1) = exp(x t) y - y.
