@@ -733,22 +733,24 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
 
         public void Execute()
         {
-            float2 rcpH = new Vector2(Rcp(H.x), Rcp(H.y));
+            float2 rcpH = rcp(H);
 
             float2 z = r * rcpH;
             float2 Z = R * rcpH;
 
             float cosHoriz = ComputeCosineOfHorizonAngle(r, R);
-            float sinTheta = Mathf.Sqrt(Saturate(1 - cosTheta * cosTheta));
+            float sinTheta = sqrt(saturate(1 - cosTheta * cosTheta));
 
             float2 ch;
-            ch.x = ChapmanUpperApprox(z.x, Mathf.Abs(cosTheta)) * Mathf.Exp(Z.x - z.x); // Rescaling adds 'exp'
-            ch.y = ChapmanUpperApprox(z.y, Mathf.Abs(cosTheta)) * Mathf.Exp(Z.y - z.y); // Rescaling adds 'exp'
+            ch.x = ChapmanUpperApprox(z.x, abs(cosTheta)) * exp(Z.x - z.x); // Rescaling adds 'exp'
+            ch.y = ChapmanUpperApprox(z.y, abs(cosTheta)) * exp(Z.y - z.y); // Rescaling adds 'exp'
+
+            Unity.Burst.CompilerServices.Hint.Assume(!alwaysAboveHorizon);
 
             if ((!alwaysAboveHorizon) && (cosTheta < cosHoriz)) // Below horizon, intersect sphere
             {
                 float sinGamma = (r / R) * sinTheta;
-                float cosGamma = Mathf.Sqrt(Saturate(1 - sinGamma * sinGamma));
+                float cosGamma = sqrt(saturate(1 - sinGamma * sinGamma));
 
                 float2 ch_2;
                 ch_2.x = ChapmanUpperApprox(Z.x, cosGamma); // No need to rescale
@@ -761,7 +763,7 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
                 // z_0 = n * r_0 = (n * r) * sin(theta) = z * sin(theta).
                 // Ch(z, theta) = 2 * exp(z - z_0) * Ch(z_0, Pi/2) - Ch(z, Pi - theta).
                 float2 z_0 = z * sinTheta;
-                float2 b = new float2(Mathf.Exp(Z.x - z_0.x), Mathf.Exp(Z.x - z_0.x)); // Rescaling cancels out 'z' and adds 'Z'
+                float2 b = new float2(exp(Z.x - z_0.x)); // Rescaling cancels out 'z' and adds 'Z'
                 float2 a;
                 a.x = 2 * ChapmanHorizontal(z_0.x);
                 a.y = 2 * ChapmanHorizontal(z_0.y);
@@ -771,16 +773,11 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
             }
 
             float2 optDepth = ch * H;
-
             float ozoneOD = alwaysAboveHorizon ? ComputeOzoneOpticalDepth(R, r, cosTheta, ozoneMinimumAltitude, ozoneLayerWidth) : 0.0f;
 
-            float3 airExtinction = airExtinctionCoefficient;
-            float aerosolExtinction = aerosolExtinctionCoefficient;
-            float3 ozoneExtinction = ozoneExtinctionCoefficient;
-
-            atmosphericOpticalDepth[0] = new float3(optDepth.x * airExtinction.x + optDepth.y * aerosolExtinction + ozoneOD * ozoneExtinction.x,
-                optDepth.x * airExtinction.y + optDepth.y * aerosolExtinction + ozoneOD * ozoneExtinction.y,
-                optDepth.x * airExtinction.z + optDepth.y * aerosolExtinction + ozoneOD * ozoneExtinction.z);
+            atmosphericOpticalDepth[0] = optDepth.x * airExtinctionCoefficient
+                + optDepth.y * aerosolExtinctionCoefficient
+                + ozoneOD * ozoneExtinctionCoefficient;
         }
     }
 #endif // ENABLE_BURST_1_0_0_OR_NEWER
@@ -1017,7 +1014,7 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
             // z_0 = n * r_0 = (n * r) * sin(theta) = z * sin(theta).
             // Ch(z, theta) = 2 * exp(z - z_0) * Ch(z_0, Pi/2) - Ch(z, Pi - theta).
             float2 z_0 = z * sinTheta;
-            float2 b = exp(Z - z_0); // Rescaling cancels out 'z' and adds 'Z'
+            float2 b = new float2(exp(Z.x - z_0.x)); // Rescaling cancels out 'z' and adds 'Z'
             float2 a;
             a.x = 2 * ChapmanHorizontal(z_0.x);
             a.y = 2 * ChapmanHorizontal(z_0.y);
@@ -1047,8 +1044,8 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
 
         public void Execute()
         {
-            float2 n = float2(rcp(k_DefaultAirScaleHeight), rcp(k_DefaultAerosolScaleHeight));
-            float2 H = float2(k_DefaultAirScaleHeight, k_DefaultAerosolScaleHeight);
+            float2 H = new float2(k_DefaultAirScaleHeight, k_DefaultAerosolScaleHeight);
+            float2 n = rcp(H);
             float R = PlanetaryRadius();
 
             float2 z = n * r;
@@ -1059,6 +1056,8 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
             float2 ch;
             ch.x = ChapmanUpperApprox(z.x, abs(cosTheta)) * exp(Z.x - z.x); // Rescaling adds 'exp'
             ch.y = ChapmanUpperApprox(z.y, abs(cosTheta)) * exp(Z.y - z.y); // Rescaling adds 'exp'
+
+            Unity.Burst.CompilerServices.Hint.Assume(!aboveHorizon);
 
             if (!aboveHorizon) // Below horizon, intersect sphere
             {
@@ -1076,7 +1075,7 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
                 // z_0 = n * r_0 = (n * r) * sin(theta) = z * sin(theta).
                 // Ch(z, theta) = 2 * exp(z - z_0) * Ch(z_0, Pi/2) - Ch(z, Pi - theta).
                 float2 z_0 = z * sinTheta;
-                float2 b = exp(Z - z_0); // Rescaling cancels out 'z' and adds 'Z'
+                float2 b = new float2(exp(Z.x - z_0.x)); // Rescaling cancels out 'z' and adds 'Z'
                 float2 a;
                 a.x = 2 * ChapmanHorizontal(z_0.x);
                 a.y = 2 * ChapmanHorizontal(z_0.y);
@@ -1088,9 +1087,9 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
             float ozone = aboveHorizon ? ComputeOzoneOpticalDepth(r, cosTheta, float.MaxValue) : 0.0f;
             float3 optDepth = float3(ch * H, ozone);
 
-            atmosphericOpticalDepth[0] = optDepth.x * float3(k_DefaultAirScatteringR, k_DefaultAirScatteringG, k_DefaultAirScatteringB)
+            atmosphericOpticalDepth[0] = optDepth.x * new float3(k_DefaultAirScatteringR, k_DefaultAirScatteringG, k_DefaultAirScatteringB)
                 + optDepth.y * ExtinctionFromZenithOpacityAndScaleHeight(ZenithOpacityFromExtinctionAndScaleHeight(10.0f / 1000000, k_DefaultAerosolScaleHeight), k_DefaultAerosolScaleHeight)
-                + optDepth.z * float3(new Vector3(0.00065f, 0.00188f, 0.00008f) / 1000.0f);
+                + optDepth.z * new float3(0.00065f / 1000.0f, 0.00188f / 1000.0f, 0.00008f / 1000.0f);
         }
     }
 #endif // ENABLE_BURST_1_0_0_OR_NEWER
