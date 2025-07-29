@@ -356,7 +356,7 @@ Shader "Hidden/Skybox/PhysicallyBasedSky"
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
 
 #if defined(_TERRAIN) || defined(_SHADOWS)
-                float4 farChunks;
+                float4 farChunks = float4(0, 0, 0, 0);
                 if (input.viewDir.y <= input.temp.w)
                 {
                     farChunks = FarChunks(input.temp.xyz, input.positionCS.xy, input.viewDir);
