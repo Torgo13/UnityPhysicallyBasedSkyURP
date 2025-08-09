@@ -250,8 +250,10 @@ Shader "Hidden/Skybox/PhysicallyBasedSky"
                 float tFrag    = FLT_INF;
                 float3 radiance = 0;
 
+            #ifdef SKY_NOT_BAKING
                 if (renderSunDisk)
                     radiance = RenderSunDisk(tFrag, tExit, V);
+            #endif // SKY_NOT_BAKING
 
                 if (rayIntersectsAtmosphere && !lookAboveHorizon) // See the ground?
                 {

@@ -640,7 +640,12 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
             if (mainLight != null)
             {
+#if OPTIMISATION_UNITY
+                float3 cameraPosition = camera.transform.position;
+                float3 sunAttenuation = EvaluateSunColorAttenuation(cameraPosition - visualEnvironment.GetPlanetCenterRadius(cameraPosition).xyz, -mainLight.transform.forward);
+#else
                 float3 sunAttenuation = EvaluateSunColorAttenuation(float3(camera.transform.position) - visualEnvironment.GetPlanetCenterRadius(camera.transform.position).xyz, -mainLight.transform.forward);
+#endif // OPTIMISATION_UNITY
 
                 Color color = mainLight.color.linear * (mainLight.useColorTemperature ? Mathf.CorrelatedColorTemperatureToRGB(mainLight.colorTemperature) : Color.white);
                 mainLightColor = float3(color.r, color.g, color.b) * mainLight.intensity * sunAttenuation;
@@ -945,17 +950,33 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 surfaceColor = Vector4.Scale(color, surfaceColor);
                 flareColor = Vector4.Scale(color, flareColor);
 
+#if OPTIMISATION_UNITY
+                var mainLightRotation = mainLight.transform.rotation;
+                var forward = mainLightRotation * Vector3.forward;
+                celestialBodyData.forward = forward;
+                celestialBodyData.distanceFromCamera = distanceFromCamera;
+                celestialBodyData.right = (mainLightRotation * Vector3.right).normalized;
+#else
                 celestialBodyData.forward = mainLight.transform.forward;
                 celestialBodyData.distanceFromCamera = distanceFromCamera;
                 celestialBodyData.right = mainLight.transform.right.normalized;
+#endif // OPTIMISATION_UNITY
                 celestialBodyData.angularRadius = angularRadius;
                 celestialBodyData.radius = Mathf.Tan(angularRadius) * distanceFromCamera;
+#if OPTIMISATION_UNITY
+                celestialBodyData.up = mainLightRotation * Vector3.up.normalized;
+#else
                 celestialBodyData.up = mainLight.transform.up.normalized;
+#endif // OPTIMISATION_UNITY
                 celestialBodyData.type = 0; // sun
                 celestialBodyData.surfaceColor = surfaceColor;
                 celestialBodyData.earthshine = 1.0f * 0.01f;  // earth reflects about 0.01% of sun light
                 celestialBodyData.surfaceTextureScaleOffset = Vector4.zero;
+#if OPTIMISATION_UNITY
+                celestialBodyData.sunDirection = forward;
+#else
                 celestialBodyData.sunDirection = mainLight != null ? mainLight.transform.forward : Vector3.forward;
+#endif // OPTIMISATION_UNITY
 
                 // Flare
                 celestialBodyData.flareSize = flareSize;
