@@ -58,6 +58,10 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 #endif // AMBIENT_PROBE
     private PBSkyPostPass m_PBSkyPostPass;
 
+#if CUSTOM
+    public float3 MainLightColour => m_PBSkyPrePass?.MainLightColor ?? default;
+#endif // CUSTOM
+
     [Header("Sky")]
     [Tooltip("The fallback sky material when physically based sky is disabled.")]
     [SerializeField] private Material m_FallbackSkyMaterial;
@@ -616,6 +620,10 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         // Passing the final sun color to the Execute() method
         private float3 mainLightColor;
 
+#if CUSTOM
+        public float3 MainLightColor => mainLightColor;
+#endif // CUSTOM
+
         private Light GetMainLight(LightData lightData)
         {
             int shadowLightIndex = lightData.mainLightIndex;
@@ -955,7 +963,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 var forward = mainLightRotation * Vector3.forward;
                 celestialBodyData.forward = forward;
                 celestialBodyData.distanceFromCamera = distanceFromCamera;
-                celestialBodyData.right = (mainLightRotation * Vector3.right).normalized;
+                celestialBodyData.right = mainLightRotation * Vector3.right;
 #else
                 celestialBodyData.forward = mainLight.transform.forward;
                 celestialBodyData.distanceFromCamera = distanceFromCamera;
@@ -964,7 +972,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 celestialBodyData.angularRadius = angularRadius;
                 celestialBodyData.radius = Mathf.Tan(angularRadius) * distanceFromCamera;
 #if OPTIMISATION_UNITY
-                celestialBodyData.up = mainLightRotation * Vector3.up.normalized;
+                celestialBodyData.up = mainLightRotation * Vector3.up;
 #else
                 celestialBodyData.up = mainLight.transform.up.normalized;
 #endif // OPTIMISATION_UNITY

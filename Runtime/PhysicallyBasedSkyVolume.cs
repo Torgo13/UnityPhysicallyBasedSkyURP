@@ -640,10 +640,10 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
         float R, float r, float cosTheta, bool alwaysAboveHorizon = false)
     {
 #if ENABLE_BURST_1_0_0_OR_NEWER
-        var atmosphericOpticalDepth = new Unity.Collections.NativeArray<float3>(1, Unity.Collections.Allocator.TempJob,
+        var atmosphericOpticalDepth = new Unity.Collections.NativeArray<Vector3>(1, Unity.Collections.Allocator.TempJob,
             Unity.Collections.NativeArrayOptions.UninitializedMemory);
 
-        var computeAtmosphericOpticalDepthJob = new ComputeAtmosphericOpticalDepthJob0
+        var computeAtmosphericOpticalDepthJob = new ComputeAtmosphericOpticalDepthJob
         {
             H = new float2(airScaleHeight, aerosolScaleHeight),
             R = R,
@@ -655,10 +655,11 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
             ozoneLayerWidth = ozoneLayerWidth,
             cosTheta = cosTheta,
             alwaysAboveHorizon = alwaysAboveHorizon,
-            atmosphericOpticalDepth = atmosphericOpticalDepth,
+            atmosphericOpticalDepth = atmosphericOpticalDepth.Reinterpret<float3>(),
         };
 
         Unity.Jobs.IJobExtensions.Run(computeAtmosphericOpticalDepthJob);
+
         Vector3 output = atmosphericOpticalDepth[0];
         atmosphericOpticalDepth.Dispose();
         return output;
@@ -717,7 +718,7 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
 
 #if ENABLE_BURST_1_0_0_OR_NEWER
     [Unity.Burst.BurstCompile(FloatMode = Unity.Burst.FloatMode.Fast)]
-    struct ComputeAtmosphericOpticalDepthJob0 : Unity.Jobs.IJob
+    struct ComputeAtmosphericOpticalDepthJob : Unity.Jobs.IJob
     {
         [Unity.Collections.ReadOnly] public float2 H;
         [Unity.Collections.ReadOnly] public float R;
@@ -841,6 +842,7 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
         return saturate(1 - abs(height * ozoneScaleOffset.x + ozoneScaleOffset.y));
     }
 
+#if UNUSED
     // This is a very crude approximation, should be reworked
     // It estimates the result by integrating with 4 samples
 #if ENABLE_BURST_1_0_0_OR_NEWER
@@ -921,6 +923,7 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
         }
 #endif // ENABLE_BURST_1_0_0_OR_NEWER
     }
+#endif // UNUSED
 
     float3 ComputeAtmosphericOpticalDepth(float r, float cosTheta, bool aboveHorizon)
     {
@@ -928,11 +931,18 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
         var atmosphericOpticalDepth = new Unity.Collections.NativeArray<float3>(1, Unity.Collections.Allocator.TempJob,
             Unity.Collections.NativeArrayOptions.UninitializedMemory);
 
-        var computeAtmosphericOpticalDepthJob = new ComputeAtmosphericOpticalDepthJob1
+        var computeAtmosphericOpticalDepthJob = new ComputeAtmosphericOpticalDepthJob
         {
+            H = new float2(k_DefaultAirScaleHeight, k_DefaultAerosolScaleHeight),
+            R = PlanetaryRadius(),
             r = r,
+            airExtinctionCoefficient = new float3(k_DefaultAirScatteringR, k_DefaultAirScatteringG, k_DefaultAirScatteringB),
+            aerosolExtinctionCoefficient = ExtinctionFromZenithOpacityAndScaleHeight(ZenithOpacityFromExtinctionAndScaleHeight(10.0f / 1000000, k_DefaultAerosolScaleHeight), k_DefaultAerosolScaleHeight),
+            ozoneExtinctionCoefficient = new float3(0.00065f / 1000.0f, 0.00188f / 1000.0f, 0.00008f / 1000.0f),
+            ozoneMinimumAltitude = k_DefaultOzoneMinimumAltitude,
+            ozoneLayerWidth = k_DefaultOzoneLayerWidth,
             cosTheta = cosTheta,
-            aboveHorizon = aboveHorizon,
+            alwaysAboveHorizon = aboveHorizon,
             atmosphericOpticalDepth = atmosphericOpticalDepth,
         };
 
@@ -989,6 +999,7 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
 #endif // ENABLE_BURST_1_0_0_OR_NEWER
     }
 
+#if UNUSED
 #if ENABLE_BURST_1_0_0_OR_NEWER
     [Unity.Burst.BurstCompile(FloatMode = Unity.Burst.FloatMode.Fast)]
     struct ComputeAtmosphericOpticalDepthJob1 : Unity.Jobs.IJob
@@ -1050,6 +1061,7 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
         }
     }
 #endif // ENABLE_BURST_1_0_0_OR_NEWER
+#endif // UNUSED
 
     static float RayleighPhaseFunction(float cosTheta)
     {
