@@ -290,9 +290,14 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         // Do not add render passes if any error occurs.
         bool shouldDisable = isShaderMismatchLogPrinted || m_PbrSkyMaterial == null || m_PbrSkyLUTMaterial == null;
 
+#if BUGFIX
+        var cam = renderingData.cameraData.camera;
+        shouldDisable |= cam == null || cam.cameraType == CameraType.Preview;
+#else
         shouldDisable |= renderingData.cameraData.camera == null;
 
         shouldDisable |= renderingData.cameraData.camera.cameraType == CameraType.Preview;
+#endif // BUGFIX
 
         if (shouldDisable)
             return;
@@ -768,11 +773,13 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 UpdateMaterialProperties(mainLight, camera, material);
                 lutMaterial.CopyPropertiesFromMaterial(material);
 
+#if AMBIENT_PROBE
                 if (mainLight != null && visualEnvironment.skyAmbientMode.value == VisualEnvironment.SkyAmbientMode.Dynamic)
                 {
                     ambientProbe = UpdateAmbientProbe(ambientProbe, mainLight.transform.forward, mainLightColor);
                     RenderSettings.ambientProbe = ambientProbe;
                 }
+#endif // AMBIENT_PROBE
 
                 passData.mainLightColor = mainLightColor;
                 passData.enableAtmosphericScattering = pbrSky.atmosphericScattering.value;
@@ -1943,7 +1950,9 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
             cmd.SetGlobalFloat(_EnableAtmosphericScattering, 0.0f);
             cmd.SetGlobalInteger(_FogEnabled, 0);
+#if AMBIENT_PROBE
             cmd.SetGlobalFloat(_SkyTextureMipCounts, 0.0f);
+#endif // AMBIENT_PROBE
             cmd.DisableShaderKeyword(PHYSICALLY_BASED_SKY);
             cmd.DisableShaderKeyword(SKY_NOT_BAKING);
         }

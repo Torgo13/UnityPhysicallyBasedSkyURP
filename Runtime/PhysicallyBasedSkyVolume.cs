@@ -658,7 +658,7 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
             atmosphericOpticalDepth = atmosphericOpticalDepth.Reinterpret<float3>(),
         };
 
-        Unity.Jobs.IJobExtensions.Run(computeAtmosphericOpticalDepthJob);
+        Unity.Jobs.IJobExtensions.RunByRef(ref computeAtmosphericOpticalDepthJob);
 
         Vector3 output = atmosphericOpticalDepth[0];
         atmosphericOpticalDepth.Dispose();
@@ -946,7 +946,7 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
             atmosphericOpticalDepth = atmosphericOpticalDepth,
         };
 
-        Unity.Jobs.IJobExtensions.Run(computeAtmosphericOpticalDepthJob);
+        Unity.Jobs.IJobExtensions.RunByRef(ref computeAtmosphericOpticalDepthJob);
 
         float3 output = atmosphericOpticalDepth[0];
         atmosphericOpticalDepth.Dispose();
@@ -998,70 +998,6 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
             + optDepth.z * float3(GetOzoneExtinctionCoefficient());
 #endif // ENABLE_BURST_1_0_0_OR_NEWER
     }
-
-#if UNUSED
-#if ENABLE_BURST_1_0_0_OR_NEWER
-    [Unity.Burst.BurstCompile(FloatMode = Unity.Burst.FloatMode.Fast)]
-    struct ComputeAtmosphericOpticalDepthJob1 : Unity.Jobs.IJob
-    {
-        [Unity.Collections.ReadOnly] public float r;
-        [Unity.Collections.ReadOnly] public float cosTheta;
-        [Unity.Collections.ReadOnly] public bool aboveHorizon;
-
-        [Unity.Collections.WriteOnly] public Unity.Collections.NativeArray<float3> atmosphericOpticalDepth;
-
-        public void Execute()
-        {
-            float2 H = new float2(k_DefaultAirScaleHeight, k_DefaultAerosolScaleHeight);
-            float2 n = rcp(H);
-            float R = PlanetaryRadius();
-
-            float2 z = n * r;
-            float2 Z = n * R;
-
-            float sinTheta = sqrt(saturate(1 - cosTheta * cosTheta));
-
-            float2 ch;
-            ch.x = ChapmanUpperApprox(z.x, abs(cosTheta)) * exp(Z.x - z.x); // Rescaling adds 'exp'
-            ch.y = ChapmanUpperApprox(z.y, abs(cosTheta)) * exp(Z.y - z.y); // Rescaling adds 'exp'
-
-            Unity.Burst.CompilerServices.Hint.Assume(aboveHorizon);
-
-            if (!aboveHorizon) // Below horizon, intersect sphere
-            {
-                float sinGamma = (r / R) * sinTheta;
-                float cosGamma = sqrt(saturate(1 - sinGamma * sinGamma));
-
-                float2 ch_2;
-                ch_2.x = ChapmanUpperApprox(Z.x, cosGamma); // No need to rescale
-                ch_2.y = ChapmanUpperApprox(Z.y, cosGamma); // No need to rescale
-
-                ch = ch_2 - ch;
-            }
-            else if (cosTheta < 0)   // Above horizon, lower hemisphere
-            {
-                // z_0 = n * r_0 = (n * r) * sin(theta) = z * sin(theta).
-                // Ch(z, theta) = 2 * exp(z - z_0) * Ch(z_0, Pi/2) - Ch(z, Pi - theta).
-                float2 z_0 = z * sinTheta;
-                float2 b = new float2(exp(Z.x - z_0.x)); // Rescaling cancels out 'z' and adds 'Z'
-                float2 a;
-                a.x = 2 * ChapmanHorizontal(z_0.x);
-                a.y = 2 * ChapmanHorizontal(z_0.y);
-                float2 ch_2 = a * b;
-
-                ch = ch_2 - ch;
-            }
-
-            float ozone = aboveHorizon ? ComputeOzoneOpticalDepth(r, cosTheta, float.MaxValue) : 0.0f;
-            float3 optDepth = float3(ch * H, ozone);
-
-            atmosphericOpticalDepth[0] = optDepth.x * new float3(k_DefaultAirScatteringR, k_DefaultAirScatteringG, k_DefaultAirScatteringB)
-                + optDepth.y * ExtinctionFromZenithOpacityAndScaleHeight(ZenithOpacityFromExtinctionAndScaleHeight(10.0f / 1000000, k_DefaultAerosolScaleHeight), k_DefaultAerosolScaleHeight)
-                + optDepth.z * new float3(0.00065f / 1000.0f, 0.00188f / 1000.0f, 0.00008f / 1000.0f);
-        }
-    }
-#endif // ENABLE_BURST_1_0_0_OR_NEWER
-#endif // UNUSED
 
     static float RayleighPhaseFunction(float cosTheta)
     {
