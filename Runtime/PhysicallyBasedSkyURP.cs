@@ -58,9 +58,11 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 #endif // AMBIENT_PROBE
     private PBSkyPostPass m_PBSkyPostPass;
 
+#if URP_COMPATIBILITY_MODE
 #if CUSTOM
     public float3 MainLightColour => m_PBSkyPrePass?.MainLightColor ?? default;
 #endif // CUSTOM
+#endif // URP_COMPATIBILITY_MODE
 
     [Header("Sky")]
     [Tooltip("The fallback sky material when physically based sky is disabled.")]
@@ -622,6 +624,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         }
 
         #region Non Render Graph Pass
+#if URP_COMPATIBILITY_MODE
         // Passing the final sun color to the Execute() method
         private float3 mainLightColor;
 
@@ -704,6 +707,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             
             CommandBufferPool.Release(cmd);
         }
+#endif // URP_COMPATIBILITY_MODE
         #endregion
 
     #if UNITY_6000_0_OR_NEWER
@@ -1173,6 +1177,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         }
 
         #region Non Render Graph Pass
+#if URP_COMPATIBILITY_MODE
         bool lutDataChanged;
 #if UNITY_6000_0_OR_NEWER
         [Obsolete]
@@ -1349,6 +1354,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             
             CommandBufferPool.Release(cmd);
         }
+#endif // URP_COMPATIBILITY_MODE
         #endregion
 
 #if UNITY_6000_0_OR_NEWER
@@ -1696,6 +1702,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         }
 
         #region Non Render Graph Pass
+#if URP_COMPATIBILITY_MODE
 #if UNITY_6000_0_OR_NEWER
         [Obsolete]
 #endif
@@ -1735,6 +1742,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
             CommandBufferPool.Release(cmd);
         }
+#endif // URP_COMPATIBILITY_MODE
         #endregion
 
 #if UNITY_6000_0_OR_NEWER
@@ -1903,6 +1911,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         }
 
         #region Non Render Graph Pass
+#if URP_COMPATIBILITY_MODE
 #if UNITY_6000_0_OR_NEWER
         [Obsolete]
 #endif
@@ -1933,6 +1942,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             
             CommandBufferPool.Release(cmd);
         }
+#endif // URP_COMPATIBILITY_MODE
         #endregion
 
 #if UNITY_6000_0_OR_NEWER
