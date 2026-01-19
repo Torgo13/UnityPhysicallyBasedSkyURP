@@ -731,6 +731,7 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
         [Unity.Collections.ReadOnly] public float cosTheta;
         [Unity.Collections.ReadOnly] public bool alwaysAboveHorizon;
 
+        [Unity.Collections.NativeFixedLength(1)]
         [Unity.Collections.WriteOnly] public Unity.Collections.NativeArray<float3> atmosphericOpticalDepth;
 
         public void Execute()

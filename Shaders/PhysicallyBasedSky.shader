@@ -140,7 +140,7 @@ Shader "Hidden/Skybox/PhysicallyBasedSky"
                 color.rgb *= saturate((lightAtten * ao) * _MainLightColor.rgb + _VPAmbientLight);
 
                 // add fog
-                half fogFactor = (_TerrainData.z * 512.0) * (_SnapshotData.w / t);
+                half fogFactor = (_TerrainData.z * 2048.0) * (_SnapshotData.w / t);
                 half heightFog = hpos.y / _TerrainData.y;
                 heightFog *= heightFog;
                 half fog = saturate(fogFactor * fogFactor);
