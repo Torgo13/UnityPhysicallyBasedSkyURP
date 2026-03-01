@@ -735,9 +735,9 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         }
 
         // This static method is used to execute the pass and passed as the RenderFunc delegate to the RenderGraph render pass
-        static void ExecutePass(PassData data, UnsafeGraphContext context)
+        static void ExecutePass(PassData data, RasterGraphContext context)
         {
-            CommandBuffer cmd = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
+            RasterCommandBuffer cmd = context.cmd;
 
             cmd.SetGlobalFloat(_DisableSunDisk, data.isReflectionCamera ? 1.0f : 0.0f);
             cmd.SetGlobalVector(_MainLightColor, data.mainLightColor);
@@ -751,7 +751,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
         {
             // add an unsafe render pass to the render graph, specifying the name and the data type that will be passed to the ExecutePass function
-            using (var builder = renderGraph.AddUnsafePass<PassData>(profilerTag, out var passData))
+            using (var builder = renderGraph.AddRasterRenderPass<PassData>(profilerTag, out var passData))
             {
                 UniversalLightData lightData = frameData.Get<UniversalLightData>();
                 UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();
@@ -762,7 +762,8 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 float3 mainLightColor = 0.0f;
                 if (mainLight != null)
                 {
-                    float3 sunAttenuation = EvaluateSunColorAttenuation(float3(camera.transform.position) - visualEnvironment.GetPlanetCenterRadius(camera.transform.position).xyz, -mainLight.transform.forward);
+                    var cameraPositionWS = float3(camera.transform.position);
+                    float3 sunAttenuation = EvaluateSunColorAttenuation(cameraPositionWS - visualEnvironment.GetPlanetCenterRadius(cameraPositionWS).xyz, -mainLight.transform.forward);
 
                     Color color = mainLight.color.linear * (mainLight.useColorTemperature ? Mathf.CorrelatedColorTemperatureToRGB(mainLight.colorTemperature) : Color.white);
                     mainLightColor = float3(color.r, color.g, color.b) * mainLight.intensity * sunAttenuation;
@@ -790,9 +791,10 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 passData.isReflectionCamera = cameraData.camera.cameraType == CameraType.Reflection;
 
                 builder.AllowGlobalStateModification(true);
+                builder.SetShadingRateFragmentSize(GetFragmentSize());
 
                 // Assign the ExecutePass function to the render pass delegate, which will be called by the render graph when executing the pass
-                builder.SetRenderFunc((PassData data, UnsafeGraphContext context) => ExecutePass(data, context));
+                builder.SetRenderFunc(static (PassData data, RasterGraphContext context) => ExecutePass(data, context));
             }
         }
         #endregion
@@ -1476,8 +1478,10 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             {
                 // UniversalResourceData contains all the texture handles used by the renderer, including the active color and depth textures
                 // The active color and depth textures are the main color and depth buffers that the camera renders into
+#if ZERO
                 UniversalRenderingData universalRenderingData = frameData.Get<UniversalRenderingData>();
                 UniversalResourceData resourceData = frameData.Get<UniversalResourceData>();
+#endif // ZERO
                 UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();
 
                 bool precomputationChanged = HasPrecomputationDataChanged();
@@ -1577,7 +1581,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 builder.AllowGlobalStateModification(true);
 
                 // Assign the ExecutePass function to the render pass delegate, which will be called by the render graph when executing the pass
-                builder.SetRenderFunc((PassData data, UnsafeGraphContext context) => ExecutePass(data, context));
+                builder.SetRenderFunc(static (PassData data, UnsafeGraphContext context) => ExecutePass(data, context));
             }
         }
         #endregion
@@ -1756,16 +1760,16 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         }
 
         // This static method is used to execute the pass and passed as the RenderFunc delegate to the RenderGraph render pass
-        static void ExecutePass(PassData data, UnsafeGraphContext context)
+        static void ExecutePass(PassData data, RasterGraphContext context)
         {
-            CommandBuffer cmd = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
+            RasterCommandBuffer cmd = context.cmd;
 
             if (data.cameraColorHandle.IsValid())
                 CalculateActualScreenResolution(cmd, data.cameraColorHandle);
 
             cmd.SetGlobalInteger(_FogEnabled, data.enableFog ? 1 : 0);
 
-            Blitter.BlitCameraTexture(cmd, data.cameraColorHandle, data.cameraColorHandle, RenderBufferLoadAction.Load, RenderBufferStoreAction.Store, data.lutMaterial, pass: 4);
+            Blitter.BlitTexture(cmd, data.cameraColorHandle, new Vector4(1, 1, 0, 0), data.lutMaterial, pass: 4);
         }
 
         // This is where the renderGraph handle can be accessed.
@@ -1773,7 +1777,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
         {
             // add an unsafe render pass to the render graph, specifying the name and the data type that will be passed to the ExecutePass function
-            using (var builder = renderGraph.AddUnsafePass<PassData>(profilerTag, out var passData))
+            using (var builder = renderGraph.AddRasterRenderPass<PassData>(profilerTag, out var passData))
             {
                 // UniversalResourceData contains all the texture handles used by the renderer, including the active color and depth textures
                 // The active color and depth textures are the main color and depth buffers that the camera renders into
@@ -1794,9 +1798,10 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 builder.UseTexture(resourceData.activeColorTexture, AccessFlags.ReadWrite);
 
                 builder.AllowGlobalStateModification(true);
+                builder.SetShadingRateFragmentSize(GetFragmentSize());
 
                 // Assign the ExecutePass function to the render pass delegate, which will be called by the render graph when executing the pass
-                builder.SetRenderFunc((PassData data, UnsafeGraphContext context) => ExecutePass(data, context));
+                builder.SetRenderFunc(static (PassData data, RasterGraphContext context) => ExecutePass(data, context));
             }
         }
         #endregion
@@ -1862,7 +1867,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             return d * 0.144765f;
         }
 
-        static void CalculateActualScreenResolution(CommandBuffer cmd, RTHandle cameraTargetHandle)
+        static void CalculateActualScreenResolution(RasterCommandBuffer cmd, RTHandle cameraTargetHandle)
         {
             float width = cameraTargetHandle.rt.width;
             float height = cameraTargetHandle.rt.height;
@@ -1954,9 +1959,9 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         }
 
         // This static method is used to execute the pass and passed as the RenderFunc delegate to the RenderGraph render pass
-        static void ExecutePass(UnsafeGraphContext context)
+        static void ExecutePass(RasterGraphContext context)
         {
-            CommandBuffer cmd = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
+            RasterCommandBuffer cmd = context.cmd;
 
             cmd.SetGlobalFloat(_EnableAtmosphericScattering, 0.0f);
             cmd.SetGlobalInteger(_FogEnabled, 0);
@@ -1972,12 +1977,13 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
         {
             // add an unsafe render pass to the render graph, specifying the name and the data type that will be passed to the ExecutePass function
-            using (var builder = renderGraph.AddUnsafePass<PassData>(profilerTag, out var passData))
+            using (var builder = renderGraph.AddRasterRenderPass<PassData>(profilerTag, out var passData))
             {
                 builder.AllowGlobalStateModification(true);
+                builder.SetShadingRateFragmentSize(GetFragmentSize());
 
                 // Assign the ExecutePass function to the render pass delegate, which will be called by the render graph when executing the pass
-                builder.SetRenderFunc((PassData data, UnsafeGraphContext context) => ExecutePass(context));
+                builder.SetRenderFunc(static (PassData data, RasterGraphContext context) => ExecutePass(context));
             }
         }
         #endregion
@@ -2392,7 +2398,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 // Shader keyword changes are considered as global state modifications
                 builder.AllowGlobalStateModification(true);
 
-                builder.SetRenderFunc((PassData data, UnsafeGraphContext context) => ExecutePass(data, context));
+                builder.SetRenderFunc(static (PassData data, UnsafeGraphContext context) => ExecutePass(data, context));
             }
         }
         #endregion
@@ -2408,5 +2414,16 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         #endregion
     }
 #endif // AMBIENT_PROBE
-
+    
+    private static ShadingRateFragmentSize GetFragmentSize()
+    {
+        return ScalableBufferManager.widthScaleFactor switch
+        {
+            <= 0.25f => ShadingRateFragmentSize.FragmentSize4x4,
+            <= 0.4f => ShadingRateFragmentSize.FragmentSize2x4,
+            <= 0.6f => ShadingRateFragmentSize.FragmentSize2x2,
+            <= 0.8f => ShadingRateFragmentSize.FragmentSize1x2,
+            _ => ShadingRateFragmentSize.FragmentSize1x1,
+        };
+    }
 }
