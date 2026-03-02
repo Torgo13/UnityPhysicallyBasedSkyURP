@@ -393,11 +393,8 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         if (m_PBSkyPostPass != null)
             m_PBSkyPostPass.Dispose();
 
-        if (m_PbrSkyMaterial != null)
-            CoreUtils.Destroy(m_PbrSkyMaterial);
-
-        if (m_PbrSkyLUTMaterial != null)
-            CoreUtils.Destroy(m_PbrSkyLUTMaterial);
+        CoreUtils.Destroy(m_PbrSkyMaterial);
+        CoreUtils.Destroy(m_PbrSkyLUTMaterial);
     }
 
     private Material ValidateCloudsMaterial()
@@ -713,6 +710,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
     #if UNITY_6000_0_OR_NEWER
         #region Render Graph Pass
 
+        static
         private Light GetMainLight(UniversalLightData lightData)
         {
             int shadowLightIndex = lightData.mainLightIndex;
@@ -751,18 +749,18 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
         {
             // add an unsafe render pass to the render graph, specifying the name and the data type that will be passed to the ExecutePass function
-            using (var builder = renderGraph.AddRasterRenderPass<PassData>(profilerTag, out var passData))
+            using (var builder = renderGraph.AddRasterRenderPass<PassData>(profilerTag, out var passData, m_ProfilingSampler))
             {
                 UniversalLightData lightData = frameData.Get<UniversalLightData>();
                 UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();
 
                 Light mainLight = GetMainLight(lightData);
-                Camera camera = cameraData.camera;
+                Vector3 camera = cameraData.camera.transform.position;
 
                 float3 mainLightColor = 0.0f;
                 if (mainLight != null)
                 {
-                    var cameraPositionWS = float3(camera.transform.position);
+                    var cameraPositionWS = float3(camera);
                     float3 sunAttenuation = EvaluateSunColorAttenuation(cameraPositionWS - visualEnvironment.GetPlanetCenterRadius(cameraPositionWS).xyz, -mainLight.transform.forward);
 
                     Color color = mainLight.color.linear * (mainLight.useColorTemperature ? Mathf.CorrelatedColorTemperatureToRGB(mainLight.colorTemperature) : Color.white);
@@ -825,12 +823,13 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         }
 #endif // AMBIENT_PROBE
 
-        private void UpdateMaterialProperties(Light mainLight, Camera camera, Material material)
-        {
 #if OPTIMISATION_UNITY
-            var cameraPos = camera.transform.position;
+        private void UpdateMaterialProperties(Light mainLight, Vector3 cameraPos, Material material)
+        {
             float4 planetCenterRadius = visualEnvironment.GetPlanetCenterRadius(cameraPos);
 #else
+        private void UpdateMaterialProperties(Light mainLight, Camera camera, Material material)
+        {
             float4 planetCenterRadius = visualEnvironment.GetPlanetCenterRadius(camera.transform.position);
 #endif // OPTIMISATION_UNITY
 
@@ -867,7 +866,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             Shader.SetGlobalFloat(_ColorSaturation, pbrSky.colorSaturation.value);
 
             Shader.SetGlobalVector(_OzoneSeaLevelExtinction, pbrSky.GetOzoneExtinctionCoefficient());
-            Shader.SetGlobalVector(_OzoneScaleOffset, new Vector2(2.0f / ozoW, -2.0f * ozoS / ozoW - 1.0f));
+            Shader.SetGlobalVector(_OzoneScaleOffset, new Vector4(2.0f / ozoW, -2.0f * ozoS / ozoW - 1.0f));
             Shader.SetGlobalFloat(_OzoneLayerStart, R + ozoS);
             Shader.SetGlobalFloat(_OzoneLayerEnd, R + ozoS + ozoW);
 
@@ -876,10 +875,10 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
             Shader.SetGlobalFloat(_AlphaMultiplier, pbrSky.alphaMultiplier.value);
 
-            Shader.SetGlobalVector(_HorizonTint, new Vector3(pbrSky.horizonTint.value.r, pbrSky.horizonTint.value.g, pbrSky.horizonTint.value.b));
+            Shader.SetGlobalVector(_HorizonTint, new Vector4(pbrSky.horizonTint.value.r, pbrSky.horizonTint.value.g, pbrSky.horizonTint.value.b));
             Shader.SetGlobalFloat(_HorizonZenithShiftPower, expParams.x);
 
-            Shader.SetGlobalVector(_ZenithTint, new Vector3(pbrSky.zenithTint.value.r, pbrSky.zenithTint.value.g, pbrSky.zenithTint.value.b));
+            Shader.SetGlobalVector(_ZenithTint, new Vector4(pbrSky.zenithTint.value.r, pbrSky.zenithTint.value.g, pbrSky.zenithTint.value.b));
             Shader.SetGlobalFloat(_HorizonZenithShiftScale, expParams.y);
 
 #if OPTIMISATION_UNITY
@@ -942,8 +941,8 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
                 const float distanceFromCamera = 1.5e+11f;
                 const float angularDiameter = 0.5f;
-                var angularRadius = angularDiameter * 0.5f * Mathf.Deg2Rad;
-                var flareSize = Mathf.Max(2.0f * Mathf.Deg2Rad, 5.960464478e-8f);
+                const float angularRadius = angularDiameter * 0.5f * Mathf.Deg2Rad;
+                const float flareSize = 2.0f * Mathf.Deg2Rad; //Mathf.Max(2.0f * Mathf.Deg2Rad, 5.960464478e-8f);
                 var flareCosInner = Mathf.Cos(angularRadius);
                 float rcpSolidAngle = 1.0f / (Mathf.PI * 2.0f * (1 - flareCosInner));
 
@@ -963,10 +962,10 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 surfaceColor *= rcpSolidAngle;
                 flareColor *= rcpSolidAngle;
 
-                celestialBodyData.color = float3(color.r, color.g, color.b);
+                celestialBodyData.color = new Vector3(color.r, color.g, color.b);
 
                 const float lightingUnitsMultiplier = 50.0f;
-                color *= rcp(lightingUnitsMultiplier); // avoid potential precision issues
+                color *= 1.0f / lightingUnitsMultiplier; // avoid potential precision issues
 
                 surfaceColor = Vector4.Scale(color, surfaceColor);
                 flareColor = Vector4.Scale(color, flareColor);
@@ -1046,6 +1045,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             return float2(x, y);
         }
 
+#if UNUSED
         static float3 TransmittanceFromOpticalDepth(float3 opticalDepth)
         {
             return exp(-opticalDepth);
@@ -1065,12 +1065,18 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
             return mean + dev * saturation;
         }
+#endif // UNUSED
 
         float3 EvaluateSunColorAttenuation(float3 positionPS, float3 sunDirection, bool estimatePenumbra = false)
         {
+#if UNUSED
             return EvaluateSunColorAttenuation(pbrSky, visualEnvironment, positionPS, sunDirection, estimatePenumbra);
+#else
+            return PhysicallyBasedSky.EvaluateSunColorAttenuation(pbrSky, positionPS, sunDirection, estimatePenumbra);
+#endif // UNUSED
         }
 
+#if UNUSED
         static float3 EvaluateSunColorAttenuation(PhysicallyBasedSky pbrSky, VisualEnvironment visualEnvironment, float3 positionPS, float3 sunDirection, bool estimatePenumbra = false)
         {
             float r = length(positionPS);
@@ -1097,6 +1103,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 return 0;
             }
         }
+#endif // UNUSED
 #endregion
     }
 
@@ -1474,7 +1481,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
         {
             // add an unsafe render pass to the render graph, specifying the name and the data type that will be passed to the ExecutePass function
-            using (var builder = renderGraph.AddUnsafePass<PassData>(profilerTag, out var passData))
+            using (var builder = renderGraph.AddUnsafePass<PassData>(profilerTag, out var passData, m_ProfilingSampler))
             {
                 // UniversalResourceData contains all the texture handles used by the renderer, including the active color and depth textures
                 // The active color and depth textures are the main color and depth buffers that the camera renders into
@@ -1575,8 +1582,8 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 passData.lutMaterial = lutMaterial;
 
                 // UnsafePasses don't setup the outputs using UseTextureFragment/UseTextureFragmentDepth, you should specify your writes with UseTexture instead
-                builder.UseTexture(passData.multiScatteringLUTHandle, AccessFlags.ReadWrite);
-                builder.UseTexture(passData.skyViewLUTHandle, AccessFlags.ReadWrite);
+                builder.UseTexture(passData.multiScatteringLUTHandle, passData.precomputationChanged ? AccessFlags.ReadWrite : AccessFlags.Read);
+                builder.UseTexture(passData.skyViewLUTHandle, passData.cameraSpaceSky ? AccessFlags.ReadWrite : AccessFlags.Read);
 
                 builder.AllowGlobalStateModification(true);
 
@@ -1777,16 +1784,15 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
         {
             // add an unsafe render pass to the render graph, specifying the name and the data type that will be passed to the ExecutePass function
-            using (var builder = renderGraph.AddRasterRenderPass<PassData>(profilerTag, out var passData))
+            using (var builder = renderGraph.AddRasterRenderPass<PassData>(profilerTag, out var passData, m_ProfilingSampler))
             {
                 // UniversalResourceData contains all the texture handles used by the renderer, including the active color and depth textures
                 // The active color and depth textures are the main color and depth buffers that the camera renders into
                 UniversalResourceData resourceData = frameData.Get<UniversalResourceData>();
-                UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();
 
                 bool isFogEnabled = fog != null && fog.IsActive();
                 if (isFogEnabled)
-                    UpdateFogProperties(cameraData.camera);
+                    UpdateFogProperties(frameData.Get<UniversalCameraData>().camera);
 
                 passData.lutMaterial = lutMaterial;
                 passData.cameraColorHandle = resourceData.activeColorTexture;
@@ -1795,7 +1801,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 ConfigureInput(ScriptableRenderPassInput.Depth);
 
                 // UnsafePasses don't setup the outputs using UseTextureFragment/UseTextureFragmentDepth, you should specify your writes with UseTexture instead
-                builder.UseTexture(resourceData.activeColorTexture, AccessFlags.ReadWrite);
+                builder.UseTexture(resourceData.activeColorTexture, passData.cameraColorHandle.IsValid() ? AccessFlags.ReadWrite : AccessFlags.Read);
 
                 builder.AllowGlobalStateModification(true);
                 builder.SetShadingRateFragmentSize(GetFragmentSize());
@@ -1977,7 +1983,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
         {
             // add an unsafe render pass to the render graph, specifying the name and the data type that will be passed to the ExecutePass function
-            using (var builder = renderGraph.AddRasterRenderPass<PassData>(profilerTag, out var passData))
+            using (var builder = renderGraph.AddRasterRenderPass<PassData>(profilerTag, out var passData, m_ProfilingSampler))
             {
                 builder.AllowGlobalStateModification(true);
                 builder.SetShadingRateFragmentSize(GetFragmentSize());
@@ -2322,7 +2328,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
         {
             // add an unsafe render pass to the render graph, specifying the name and the data type that will be passed to the ExecutePass function
-            using (var builder = renderGraph.AddUnsafePass<PassData>(profilerTag, out var passData))
+            using (var builder = renderGraph.AddUnsafePass<PassData>(profilerTag, out var passData, m_ProfilingSampler))
             {
                 // UniversalResourceData contains all the texture handles used by the renderer, including the active color and depth textures
                 // The active color and depth textures are the main color and depth buffers that the camera renders into

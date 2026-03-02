@@ -76,8 +76,8 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
     const float k_DefaultAirScaleHeight = 8000;
     const float k_DefaultAerosolScaleHeight = 1200;
     static readonly float k_DefaultAerosolMaximumAltitude = LayerDepthFromScaleHeight(k_DefaultAerosolScaleHeight);
-    static readonly float k_DefaultOzoneMinimumAltitude = 20.0f * 1000.0f; // 20km
-    static readonly float k_DefaultOzoneLayerWidth = 20.0f * 1000.0f; // 20km
+    const float k_DefaultOzoneMinimumAltitude = 20.0f * 1000.0f; // 20km
+    const float k_DefaultOzoneLayerWidth = 20.0f * 1000.0f; // 20km
 
     //internal static Material s_DefaultMaterial = null;
 
@@ -634,33 +634,32 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
     }
 
 
-    public static Vector3 ComputeAtmosphericOpticalDepth(
-        float airScaleHeight, float aerosolScaleHeight, in Vector3 airExtinctionCoefficient, float aerosolExtinctionCoefficient,
-        float ozoneMinimumAltitude, float ozoneLayerWidth, Vector3 ozoneExtinctionCoefficient,
+    public static float3 ComputeAtmosphericOpticalDepth(PhysicallyBasedSky pbrSky,
         float R, float r, float cosTheta, bool alwaysAboveHorizon = false)
     {
 #if ENABLE_BURST_1_0_0_OR_NEWER
-        var atmosphericOpticalDepth = new Unity.Collections.NativeArray<Vector3>(1, Unity.Collections.Allocator.TempJob,
+        var atmosphericOpticalDepth = new Unity.Collections.NativeArray<float3>(1,
+            Unity.Collections.Allocator.TempJob,
             Unity.Collections.NativeArrayOptions.UninitializedMemory);
 
         var computeAtmosphericOpticalDepthJob = new ComputeAtmosphericOpticalDepthJob
         {
-            H = new float2(airScaleHeight, aerosolScaleHeight),
+            H = new float2(pbrSky.GetAirScaleHeight(), pbrSky.GetAerosolScaleHeight()),
             R = R,
             r = r,
-            airExtinctionCoefficient = airExtinctionCoefficient,
-            aerosolExtinctionCoefficient = aerosolExtinctionCoefficient,
-            ozoneExtinctionCoefficient = ozoneExtinctionCoefficient,
-            ozoneMinimumAltitude = ozoneMinimumAltitude,
-            ozoneLayerWidth = ozoneLayerWidth,
+            airExtinctionCoefficient = pbrSky.GetAirExtinctionCoefficient(),
+            aerosolExtinctionCoefficient = pbrSky.GetAerosolExtinctionCoefficient(),
+            ozoneExtinctionCoefficient = pbrSky.GetOzoneExtinctionCoefficient(),
+            ozoneMinimumAltitude = pbrSky.GetOzoneLayerMinimumAltitude(),
+            ozoneLayerWidth = pbrSky.GetOzoneLayerWidth(),
             cosTheta = cosTheta,
             alwaysAboveHorizon = alwaysAboveHorizon,
-            atmosphericOpticalDepth = atmosphericOpticalDepth.Reinterpret<float3>(),
+            atmosphericOpticalDepth = atmosphericOpticalDepth,
         };
 
         Unity.Jobs.IJobExtensions.RunByRef(ref computeAtmosphericOpticalDepthJob);
 
-        Vector3 output = atmosphericOpticalDepth[0];
+        float3 output = atmosphericOpticalDepth[0];
         atmosphericOpticalDepth.Dispose();
         return output;
 #else
@@ -720,6 +719,9 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
     [Unity.Burst.BurstCompile(FloatMode = Unity.Burst.FloatMode.Fast)]
     struct ComputeAtmosphericOpticalDepthJob : Unity.Jobs.IJob
     {
+        [Unity.Collections.NativeFixedLength(1)]
+        [Unity.Collections.WriteOnly] public Unity.Collections.NativeArray<float3> atmosphericOpticalDepth;
+        
         [Unity.Collections.ReadOnly] public float2 H;
         [Unity.Collections.ReadOnly] public float R;
         [Unity.Collections.ReadOnly] public float r;
@@ -730,9 +732,6 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
         [Unity.Collections.ReadOnly] public float ozoneLayerWidth;
         [Unity.Collections.ReadOnly] public float cosTheta;
         [Unity.Collections.ReadOnly] public bool alwaysAboveHorizon;
-
-        [Unity.Collections.NativeFixedLength(1)]
-        [Unity.Collections.WriteOnly] public Unity.Collections.NativeArray<float3> atmosphericOpticalDepth;
 
         public void Execute()
         {
@@ -785,6 +784,7 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
     }
 #endif // ENABLE_BURST_1_0_0_OR_NEWER
 
+#if UNUSED
     // Computes transmittance along the light path segment.
     public static Vector3 EvaluateAtmosphericAttenuation(
         float airScaleHeight, float aerosolScaleHeight, in Vector3 airExtinctionCoefficient, float aerosolExtinctionCoefficient,
@@ -815,8 +815,10 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
             return Vector3.zero;
         }
     }
+#endif // UNUSED
 
     #region PBSkyUtils
+#if UNUSED
     float3 AirScatter(float height)
     {
         return GetAirScatteringCoefficient() * exp(-height * rcp(GetAirScaleHeight()));
@@ -843,7 +845,6 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
         return saturate(1 - abs(height * ozoneScaleOffset.x + ozoneScaleOffset.y));
     }
 
-#if UNUSED
     // This is a very crude approximation, should be reworked
     // It estimates the result by integrating with 4 samples
 #if ENABLE_BURST_1_0_0_OR_NEWER
@@ -924,7 +925,6 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
         }
 #endif // ENABLE_BURST_1_0_0_OR_NEWER
     }
-#endif // UNUSED
 
     float3 ComputeAtmosphericOpticalDepth(float r, float cosTheta, bool aboveHorizon)
     {
@@ -1072,12 +1072,14 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
         t = lerp(t0, t1, 0.5f); // 0.5 gives the closest result to reference
         dt = t1 - t0;
     }
+#endif // UNUSED
 
     static float PlanetaryRadius()
     {
         return 6378100.0f;
     }
 
+#if UNUSED
     static float3 PlanetaryRadiusCenter()
     {
         return float3(0.0f, -PlanetaryRadius(), 0.0f);
@@ -1097,6 +1099,7 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
 
         return max(extinction, FLT_MIN_NORMAL);
     }
+#endif // UNUSED
 
     static
     float3 TransmittanceFromOpticalDepth(float3 opticalDepth)
@@ -1119,7 +1122,12 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
         return mean + dev * saturation;
     }
 
+#if UNUSED
     float3 EvaluateSunColorAttenuation(float3 positionPS, float3 sunDirection, bool estimatePenumbra = false)
+#else
+    public static float3 EvaluateSunColorAttenuation(PhysicallyBasedSky pbrSky,
+        float3 positionPS, float3 sunDirection, bool estimatePenumbra = false)
+#endif // UNUSED
     {
         float r = length(positionPS);
         float cosTheta = dot(positionPS, sunDirection) * rcp(r); // Normalize
@@ -1131,7 +1139,13 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
 
         if (cosTheta >= cosHoriz) // Above horizon
         {
+#if UNUSED
             float3 oDepth = ComputeAtmosphericOpticalDepth(r, cosTheta, true);
+#else
+            float3 oDepth = ComputeAtmosphericOpticalDepth(pbrSky, R, r, cosTheta, alwaysAboveHorizon: true);
+            var alphaSaturation = pbrSky.alphaSaturation;
+            var alphaMultiplier = pbrSky.alphaMultiplier;
+#endif // UNUSED
             float3 opacity = 1 - TransmittanceFromOpticalDepth(oDepth);
             float penumbra = saturate((cosTheta - cosHoriz) / 0.0019f); // very scientific value
             float3 attenuation = 1 - (Desaturate(opacity, alphaSaturation.value) * alphaMultiplier.value);
@@ -1143,6 +1157,7 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
         }
     }
 
+#if UNUSED
     void EvaluateAtmosphericColor(float3 L, float3 lightColor, float3 O, float3 V, float tExit,
                 out float3 skyColor, out float3 skyTransmittance)
     {
@@ -1269,6 +1284,6 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
 
         skyColor *= GetIntensityFromSettings();
     }
-
+#endif // UNUSED
     #endregion
 }
