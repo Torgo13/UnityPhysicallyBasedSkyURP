@@ -10,6 +10,11 @@ using static Unity.Mathematics.math;
 using UnityEngine.Rendering.RenderGraphModule;
 #endif
 
+#if UNITY_6000_3_OR_NEWER
+#else
+using RasterCommandBuffer = UnityEngine.Rendering.CommandBuffer;
+#endif // UNITY_6000_3_OR_NEWER
+
 /// <summary>
 /// A renderer feature that adds physically based sky and precomputed atmospheric scattering support to the URP volume.
 /// </summary>
@@ -197,25 +202,25 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         bool shadersValid = true;
         if (m_Shader != Shader.Find(k_PbrSkyShaderName))
         {
-    #if UNITY_EDITOR || DEBUG
+#if UNITY_EDITOR || DEBUG
             if (!isShaderMismatchLogPrinted)
             {
                 Debug.LogErrorFormat("Physically Based Sky URP: Skybox shader is not {0}.", k_PbrSkyShaderName);
                 isShaderMismatchLogPrinted = true;
             }
-    #endif
+#endif
             shadersValid = false;
         }
 
         if (m_LutShader != Shader.Find(k_PbrSkyLutShaderName))
         {
-    #if UNITY_EDITOR || DEBUG
+#if UNITY_EDITOR || DEBUG
             if (!isShaderMismatchLogPrinted)
             {
                 Debug.LogErrorFormat("Physically Based Sky URP: LUT shader is not {0}.", k_PbrSkyLutShaderName);
                 isShaderMismatchLogPrinted = true;
             }
-    #endif
+#endif
             shadersValid = false;
         }
 
@@ -234,13 +239,13 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
             Shader.DisableKeyword(k_DynamicAmbientProbeKeywordName);
 
-        #if UNITY_EDITOR
+#if UNITY_EDITOR
             // Update ambient probe
             if (RenderSettings.skybox != null)
             {
                 DynamicGI.UpdateEnvironment();
             }
-        #endif
+#endif
 #endif // AMBIENT_PROBE
 
             return;
@@ -334,12 +339,12 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
             bool hasFog = isPbrSky && pbrSkyVolume.atmosphericScattering.value || (fogVolume != null && fogVolume.IsActive());
 
-        #if UNITY_EDITOR
+#if UNITY_EDITOR
             bool isEditingPrefab = UnityEditor.SceneManagement.PrefabStageUtility.GetCurrentPrefabStage() != null;
             bool isSceneViewFocused = UnityEditor.SceneView.lastActiveSceneView != null && UnityEditor.SceneView.lastActiveSceneView.hasFocus;
             // Disable atmospheric scattering and fog when entering prefab mode.
             hasFog &= !(isEditingPrefab && isSceneViewFocused);
-        #endif
+#endif
 
             if (isPbrSky)
             {
@@ -643,19 +648,24 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             return RenderSettings.sun;
         }
 
-    #if UNITY_6000_0_OR_NEWER
+#if UNITY_6000_0_OR_NEWER
         [Obsolete]
-    #endif
+#endif
         public override void OnCameraSetup(CommandBuffer cmd, ref RenderingData renderingData)
         {
+#if OPTIMISATION_UNITY
+            Camera cam = renderingData.cameraData.camera;
+            float3 camera = cam.transform.position;
+#else
             Camera camera = renderingData.cameraData.camera;
+#endif // OPTIMISATION_UNITY
+
             Light mainLight = GetMainLight(renderingData.lightData);
 
             if (mainLight != null)
             {
 #if OPTIMISATION_UNITY
-                float3 cameraPosition = camera.transform.position;
-                float3 sunAttenuation = EvaluateSunColorAttenuation(cameraPosition - visualEnvironment.GetPlanetCenterRadius(cameraPosition).xyz, -mainLight.transform.forward);
+                float3 sunAttenuation = EvaluateSunColorAttenuation(camera - visualEnvironment.GetPlanetCenterRadius(camera).xyz, -mainLight.transform.forward);
 #else
                 float3 sunAttenuation = EvaluateSunColorAttenuation(float3(camera.transform.position) - visualEnvironment.GetPlanetCenterRadius(camera.transform.position).xyz, -mainLight.transform.forward);
 #endif // OPTIMISATION_UNITY
@@ -663,11 +673,11 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 Color color = mainLight.color.linear * (mainLight.useColorTemperature ? Mathf.CorrelatedColorTemperatureToRGB(mainLight.colorTemperature) : Color.white);
                 mainLightColor = float3(color.r, color.g, color.b) * mainLight.intensity * sunAttenuation;
 
-            #if URP_PHYSICAL_LIGHT
+#if URP_PHYSICAL_LIGHT
                 bool isPhysicalLight = mainLight.GetComponent<AdditionalLightData>() != null;
 
                 mainLightColor = isPhysicalLight ? mainLightColor * rcp(PI) : mainLightColor;
-            #endif
+#endif
             }
 
             UpdateMaterialProperties(mainLight, camera, material);
@@ -682,9 +692,9 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 #endif // AMBIENT_PROBE
         }
 
-    #if UNITY_6000_0_OR_NEWER
+#if UNITY_6000_0_OR_NEWER
         [Obsolete]
-    #endif
+#endif
         public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
         {
             CommandBuffer cmd = CommandBufferPool.Get();
@@ -705,9 +715,9 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             CommandBufferPool.Release(cmd);
         }
 #endif // URP_COMPATIBILITY_MODE
-        #endregion
+#endregion
 
-    #if UNITY_6000_0_OR_NEWER
+#if UNITY_6000_0_OR_NEWER
         #region Render Graph Pass
 
         static
@@ -766,11 +776,11 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                     Color color = mainLight.color.linear * (mainLight.useColorTemperature ? Mathf.CorrelatedColorTemperatureToRGB(mainLight.colorTemperature) : Color.white);
                     mainLightColor = float3(color.r, color.g, color.b) * mainLight.intensity * sunAttenuation;
 
-                #if URP_PHYSICAL_LIGHT
+#if URP_PHYSICAL_LIGHT
                     bool isPhysicalLight = mainLight.GetComponent<AdditionalLightData>() != null;
 
                     mainLightColor = isPhysicalLight ? mainLightColor * rcp(PI) : mainLightColor;
-                #endif
+#endif
                 }
 
                 UpdateMaterialProperties(mainLight, camera, material);
@@ -796,7 +806,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             }
         }
         #endregion
-    #endif
+#endif
 
         #region Shared
         public void Dispose()
@@ -1364,7 +1374,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             CommandBufferPool.Release(cmd);
         }
 #endif // URP_COMPATIBILITY_MODE
-        #endregion
+#endregion
 
 #if UNITY_6000_0_OR_NEWER
         #region Render Graph Pass
@@ -1754,7 +1764,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             CommandBufferPool.Release(cmd);
         }
 #endif // URP_COMPATIBILITY_MODE
-        #endregion
+#endregion
 
 #if UNITY_6000_0_OR_NEWER
         #region Render Graph Pass
@@ -1954,7 +1964,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             CommandBufferPool.Release(cmd);
         }
 #endif // URP_COMPATIBILITY_MODE
-        #endregion
+#endregion
 
 #if UNITY_6000_0_OR_NEWER
         #region Render Graph Pass
@@ -2420,7 +2430,8 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         #endregion
     }
 #endif // AMBIENT_PROBE
-    
+
+#if UNITY_6000_3_OR_NEWER
     private static ShadingRateFragmentSize GetFragmentSize()
     {
         return ScalableBufferManager.widthScaleFactor switch
@@ -2432,4 +2443,5 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             _ => ShadingRateFragmentSize.FragmentSize1x1,
         };
     }
+#endif // UNITY_6000_3_OR_NEWER
 }
