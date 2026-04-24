@@ -637,6 +637,19 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
     public static float3 ComputeAtmosphericOpticalDepth(PhysicallyBasedSky pbrSky,
         float R, float r, float cosTheta, bool alwaysAboveHorizon = false)
     {
+        return ComputeAtmosphericOpticalDepth(pbrSky.GetAirScaleHeight(),
+            pbrSky.GetAerosolScaleHeight(), pbrSky.GetAirExtinctionCoefficient(),
+            pbrSky.GetAerosolExtinctionCoefficient(), pbrSky.GetOzoneLayerMinimumAltitude(),
+            pbrSky.GetOzoneLayerWidth(), pbrSky.GetOzoneExtinctionCoefficient(),
+            R, r, cosTheta, alwaysAboveHorizon);
+    }
+
+    public static float3 ComputeAtmosphericOpticalDepth(float airScaleHeight,
+        float aerosolScaleHeight, Vector3 airExtinctionCoefficient,
+        float aerosolExtinctionCoefficient, float ozoneLayerMinimumAltitude,
+        float ozoneLayerWidth, Vector3 ozoneExtinctionCoefficient,
+        float R, float r, float cosTheta, bool alwaysAboveHorizon = false)
+    {
 #if ENABLE_BURST_1_0_0_OR_NEWER
         var atmosphericOpticalDepth = new Unity.Collections.NativeArray<float3>(1,
             Unity.Collections.Allocator.TempJob,
@@ -644,14 +657,14 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
 
         var computeAtmosphericOpticalDepthJob = new ComputeAtmosphericOpticalDepthJob
         {
-            H = new float2(pbrSky.GetAirScaleHeight(), pbrSky.GetAerosolScaleHeight()),
+            H = new float2(airScaleHeight, aerosolScaleHeight),
             R = R,
             r = r,
-            airExtinctionCoefficient = pbrSky.GetAirExtinctionCoefficient(),
-            aerosolExtinctionCoefficient = pbrSky.GetAerosolExtinctionCoefficient(),
-            ozoneExtinctionCoefficient = pbrSky.GetOzoneExtinctionCoefficient(),
-            ozoneMinimumAltitude = pbrSky.GetOzoneLayerMinimumAltitude(),
-            ozoneLayerWidth = pbrSky.GetOzoneLayerWidth(),
+            airExtinctionCoefficient = airExtinctionCoefficient,
+            aerosolExtinctionCoefficient = aerosolExtinctionCoefficient,
+            ozoneExtinctionCoefficient = ozoneExtinctionCoefficient,
+            ozoneMinimumAltitude = ozoneLayerMinimumAltitude,
+            ozoneLayerWidth = ozoneLayerWidth,
             cosTheta = cosTheta,
             alwaysAboveHorizon = alwaysAboveHorizon,
             atmosphericOpticalDepth = atmosphericOpticalDepth,
@@ -818,7 +831,6 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
 #endif // UNUSED
 
     #region PBSkyUtils
-#if UNUSED
     float3 AirScatter(float height)
     {
         return GetAirScatteringCoefficient() * exp(-height * rcp(GetAirScaleHeight()));
@@ -1072,14 +1084,12 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
         t = lerp(t0, t1, 0.5f); // 0.5 gives the closest result to reference
         dt = t1 - t0;
     }
-#endif // UNUSED
 
     static float PlanetaryRadius()
     {
         return 6378100.0f;
     }
 
-#if UNUSED
     static float3 PlanetaryRadiusCenter()
     {
         return float3(0.0f, -PlanetaryRadius(), 0.0f);
@@ -1099,7 +1109,6 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
 
         return max(extinction, FLT_MIN_NORMAL);
     }
-#endif // UNUSED
 
     static
     float3 TransmittanceFromOpticalDepth(float3 opticalDepth)
@@ -1157,9 +1166,8 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
         }
     }
 
-#if UNUSED
     void EvaluateAtmosphericColor(float3 L, float3 lightColor, float3 O, float3 V, float tExit,
-                out float3 skyColor, out float3 skyTransmittance)
+        out float3 skyColor, out float3 skyTransmittance)
     {
         skyColor = 0.0f;
         skyTransmittance = 1.0f;
@@ -1198,7 +1206,7 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
                 //CelestialBodyData light = GetCelestialBody();
                 //float3 L          = -light.forward.xyz;
 
-                float3 sunTransmittance = EvaluateSunColorAttenuation(dot(N, L), r);
+                float3 sunTransmittance = EvaluateSunColorAttenuation(this, dot(N, L), r);
                 float3 phaseScatter = AirScatter(height) * AirPhase(-dot(L, V)) + AerosolScatter(height) * AerosolPhase(-dot(L, V));
                 //float3 multiScatteredLuminance = EvaluateMultipleScattering(dot(N, L), height);
 
@@ -1284,6 +1292,5 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
 
         skyColor *= GetIntensityFromSettings();
     }
-#endif // UNUSED
     #endregion
 }

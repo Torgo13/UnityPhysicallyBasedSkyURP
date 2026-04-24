@@ -1,3 +1,4 @@
+#define AMBIENT_PROBE
 using System;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -259,7 +260,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         // Initialize render passes
         m_PBSkyPrePass ??= new PBSkyPrePass(m_PbrSkyMaterial, m_CelestialBodyData)
         {
-            renderPassEvent = RenderPassEvent.BeforeRenderingPrePasses
+            renderPassEvent = RenderPassEvent.BeforeRenderingPrePasses + 1 // After Volumetric Clouds PrePasses
         };
 
         m_PBSkyPrePass.material = m_PbrSkyMaterial;
@@ -272,13 +273,15 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
         m_SkyViewLUTPass.lutMaterial = m_PbrSkyLUTMaterial;
 
+#if PBRSKY_SCATTERING
         m_AtmosphericScatteringPass ??= new AtmosphericScatteringPass(m_PbrSkyLUTMaterial)
         {
             renderPassEvent = RenderPassEvent.AfterRenderingSkybox + 1
         };
 
         m_AtmosphericScatteringPass.lutMaterial = m_PbrSkyLUTMaterial;
-        
+#endif // PBRSKY_SCATTERING
+
 #if AMBIENT_PROBE
         m_AmbientProbePass ??= new AmbientProbePass(m_VolumetricCloudsMaterial)
         {
@@ -314,22 +317,27 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         VisualEnvironment visualEnvVolume = stack.GetComponent<VisualEnvironment>();
         Fog fogVolume = stack.GetComponent<Fog>();
 
-        const int physicallyBased = (int)VisualEnvironment.SkyType.PhysicallyBased;
-        bool isPbrSky = pbrSkyVolume != null && visualEnvVolume != null && visualEnvVolume.IsActive() && visualEnvVolume.skyType.value == physicallyBased;
+        bool isPbrSky = pbrSkyVolume != null && visualEnvVolume != null && visualEnvVolume.IsActive() && visualEnvVolume.skyType.value == (int)VisualEnvironment.SkyType.PhysicallyBased;
 
         {
             bool halfResolutionLuts = m_Precomputation == PrecomputationQualityMode.Low;
 
             m_PBSkyPrePass.pbrSky = pbrSkyVolume;
             m_SkyViewLUTPass.pbrSky = pbrSkyVolume;
+#if PBRSKY_SCATTERING
             m_AtmosphericScatteringPass.pbrSky = pbrSkyVolume;
+#endif // PBRSKY_SCATTERING
 
             m_PBSkyPrePass.visualEnvironment = visualEnvVolume;
             m_SkyViewLUTPass.visualEnvironment = visualEnvVolume;
+#if PBRSKY_SCATTERING
             m_AtmosphericScatteringPass.visualEnvironment = visualEnvVolume;
+#endif // PBRSKY_SCATTERING
 
             m_PBSkyPrePass.fog = fogVolume;
+#if PBRSKY_SCATTERING
             m_AtmosphericScatteringPass.fog = fogVolume;
+#endif // PBRSKY_SCATTERING
 
             m_SkyViewLUTPass.halfResolutionLuts = halfResolutionLuts;
 
@@ -355,12 +363,14 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 renderer.EnqueuePass(m_SkyViewLUTPass);
             }
 
+#if PBRSKY_SCATTERING
             if (hasFog && renderingData.cameraData.camera.cameraType != CameraType.Reflection)
                 renderer.EnqueuePass(m_AtmosphericScatteringPass);
-            
+#endif // PBRSKY_SCATTERING
+
             renderer.EnqueuePass(m_PBSkyPostPass);
         }
-        
+
 #if AMBIENT_PROBE
         if (visualEnvVolume.skyAmbientMode.value == VisualEnvironment.SkyAmbientMode.Dynamic && renderingData.cameraData.camera.cameraType != CameraType.Reflection && RenderSettings.skybox != null)
         {
@@ -368,7 +378,11 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             m_AmbientProbePass.cloudsMaterial = ValidateCloudsMaterial();
             m_AmbientProbePass.isPbrSky = isPbrSky;
             Shader.EnableKeyword(k_DynamicAmbientProbeKeywordName);
-            renderer.EnqueuePass(m_AmbientProbePass);
+#if PBRSKY_SCATTERING
+#else
+            if (isPbrSky)
+#endif // PBRSKY_SCATTERING
+                renderer.EnqueuePass(m_AmbientProbePass);
         }
         else
         {
@@ -389,7 +403,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
         if (m_AtmosphericScatteringPass != null)
             m_AtmosphericScatteringPass.Dispose();
-        
+
 #if AMBIENT_PROBE
         if (m_AmbientProbePass != null)
             m_AmbientProbePass.Dispose();
@@ -419,7 +433,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
         bool isSkyTypeChanged = lastSkyType != visualEnvVolume.skyType.value;
         bool isAmbientModeChanged = lastSkyAmbientMode != visualEnvVolume.skyAmbientMode.value;
-        
+
         // Reset the sky reflection texture
         if (!isDynamicSky && isAmbientModeChanged)
         {
@@ -546,7 +560,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         private const string PHYSICALLY_BASED_SKY = "PHYSICALLY_BASED_SKY";
         private const string LOCAL_SKY = "LOCAL_SKY";
         private const string SKY_NOT_BAKING = "SKY_NOT_BAKING";
-        
+
 #if AMBIENT_PROBE
         private SphericalHarmonicsL2 ambientProbe = new SphericalHarmonicsL2();
 
@@ -682,7 +696,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
             UpdateMaterialProperties(mainLight, camera, material);
             lutMaterial.CopyPropertiesFromMaterial(material);
-            
+
 #if AMBIENT_PROBE
             if (mainLight != null && visualEnvironment.skyAmbientMode.value == VisualEnvironment.SkyAmbientMode.Dynamic)
             {
@@ -711,11 +725,11 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
             context.ExecuteCommandBuffer(cmd);
             cmd.Clear();
-            
+
             CommandBufferPool.Release(cmd);
         }
 #endif // URP_COMPATIBILITY_MODE
-#endregion
+        #endregion
 
 #if UNITY_6000_0_OR_NEWER
         #region Render Graph Pass
@@ -799,7 +813,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 passData.isReflectionCamera = cameraData.camera.cameraType == CameraType.Reflection;
 
                 builder.AllowGlobalStateModification(true);
-                builder.SetShadingRateFragmentSize(GetFragmentSize());
+                //builder.SetShadingRateFragmentSize(GetFragmentSize());
 
                 // Assign the ExecutePass function to the render pass delegate, which will be called by the render graph when executing the pass
                 builder.SetRenderFunc(static (PassData data, RasterGraphContext context) => ExecutePass(data, context));
@@ -923,7 +937,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 pbrSky.spaceRotation.value.y,
                 pbrSky.spaceRotation.value.z);
 
-            var planetRotationMatrix = Matrix4x4.Rotate(planetRotation);
+            var planetRotationMatrix = Matrix4x4.Rotate(in planetRotation);
             planetRotationMatrix[0] *= -1;
             planetRotationMatrix[1] *= -1;
             planetRotationMatrix[2] *= -1;
@@ -940,7 +954,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             material.SetFloat(_SpaceEmissionMultiplier, pbrSky.spaceEmissionMultiplier.value);
 
             material.SetMatrix(_PlanetRotation, planetRotationMatrix);
-            material.SetMatrix(_SpaceRotation, Matrix4x4.Rotate(spaceRotation));
+            material.SetMatrix(_SpaceRotation, Matrix4x4.Rotate(in spaceRotation));
 
             if (mainLight != null)
             {
@@ -1370,7 +1384,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             }
             context.ExecuteCommandBuffer(cmd);
             cmd.Clear();
-            
+
             CommandBufferPool.Release(cmd);
         }
 #endif // URP_COMPATIBILITY_MODE
@@ -1422,7 +1436,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             }
 
             data.lutMaterial.SetTexture(multiScatteringLUT, data.multiScatteringLUTHandle);
-            
+
             if (data.cameraSpaceSky)
             {
                 Blitter.BlitCameraTexture(cmd, data.skyViewLUTHandle, data.skyViewLUTHandle, RenderBufferLoadAction.DontCare, RenderBufferStoreAction.Store, data.lutMaterial, pass: 0);
@@ -1756,7 +1770,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
                     Blitter.BlitCameraTexture(cmd, cameraColorHandle, cameraColorHandle, RenderBufferLoadAction.Load, RenderBufferStoreAction.Store, lutMaterial, pass: 4);
                 }
-                    
+
             }
             context.ExecuteCommandBuffer(cmd);
             cmd.Clear();
@@ -1779,6 +1793,9 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         // This static method is used to execute the pass and passed as the RenderFunc delegate to the RenderGraph render pass
         static void ExecutePass(PassData data, RasterGraphContext context)
         {
+            if (!data.cameraColorHandle.IsValid() || ((RTHandle)data.cameraColorHandle).rt == null)
+                return;
+
             RasterCommandBuffer cmd = context.cmd;
 
             if (data.cameraColorHandle.IsValid())
@@ -1808,13 +1825,15 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 passData.cameraColorHandle = resourceData.activeColorTexture;
                 passData.enableFog = isFogEnabled;
 
+#if PBRSKY_DEPTH
                 ConfigureInput(ScriptableRenderPassInput.Depth);
+#endif // PBRSKY_DEPTH
 
                 // UnsafePasses don't setup the outputs using UseTextureFragment/UseTextureFragmentDepth, you should specify your writes with UseTexture instead
                 builder.UseTexture(resourceData.activeColorTexture, passData.cameraColorHandle.IsValid() ? AccessFlags.ReadWrite : AccessFlags.Read);
 
                 builder.AllowGlobalStateModification(true);
-                builder.SetShadingRateFragmentSize(GetFragmentSize());
+                //builder.SetShadingRateFragmentSize(GetFragmentSize());
 
                 // Assign the ExecutePass function to the render pass delegate, which will be called by the render graph when executing the pass
                 builder.SetRenderFunc(static (PassData data, RasterGraphContext context) => ExecutePass(data, context));
@@ -1922,9 +1941,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
         private static readonly int _EnableAtmosphericScattering = Shader.PropertyToID("_EnableAtmosphericScattering");
         private static readonly int _FogEnabled = Shader.PropertyToID("_FogEnabled");
-#if AMBIENT_PROBE
         private static readonly int _SkyTextureMipCounts = Shader.PropertyToID("_SkyTextureMipCounts");
-#endif // AMBIENT_PROBE
 
         public PBSkyPostPass()
         {
@@ -1952,15 +1969,13 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             {
                 cmd.SetGlobalFloat(_EnableAtmosphericScattering, 0.0f);
                 cmd.SetGlobalInteger(_FogEnabled, 0);
-#if AMBIENT_PROBE
                 cmd.SetGlobalFloat(_SkyTextureMipCounts, 0.0f);
-#endif // AMBIENT_PROBE
                 cmd.DisableShaderKeyword(PHYSICALLY_BASED_SKY);
                 cmd.DisableShaderKeyword(SKY_NOT_BAKING);
             }
             context.ExecuteCommandBuffer(cmd);
             cmd.Clear();
-            
+
             CommandBufferPool.Release(cmd);
         }
 #endif // URP_COMPATIBILITY_MODE
@@ -1981,9 +1996,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
             cmd.SetGlobalFloat(_EnableAtmosphericScattering, 0.0f);
             cmd.SetGlobalInteger(_FogEnabled, 0);
-#if AMBIENT_PROBE
             cmd.SetGlobalFloat(_SkyTextureMipCounts, 0.0f);
-#endif // AMBIENT_PROBE
             cmd.DisableShaderKeyword(PHYSICALLY_BASED_SKY);
             cmd.DisableShaderKeyword(SKY_NOT_BAKING);
         }
@@ -1996,7 +2009,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             using (var builder = renderGraph.AddRasterRenderPass<PassData>(profilerTag, out var passData, m_ProfilingSampler))
             {
                 builder.AllowGlobalStateModification(true);
-                builder.SetShadingRateFragmentSize(GetFragmentSize());
+                //builder.SetShadingRateFragmentSize(GetFragmentSize());
 
                 // Assign the ExecutePass function to the render pass delegate, which will be called by the render graph when executing the pass
                 builder.SetRenderFunc(static (PassData data, RasterGraphContext context) => ExecutePass(context));
@@ -2057,14 +2070,28 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         private static readonly Matrix4x4 rightView = new Matrix4x4(float4(0, 0, -1, 0), float4(0, -1, 0, 0), float4(1, 0, 0, 0), float4(0, 0, 0, 1));
         private static readonly Matrix4x4 leftView = new Matrix4x4(float4(0, 0, 1, 0), float4(0, -1, 0, 0), float4(-1, 0, 0, 0), float4(0, 0, 0, 1));
 
+#if OPTIMISATION
+#else
         // Cubemap Order: right, left, up, down, back, front. (+X, -X, +Y, -Y, +Z, -Z)
         private static readonly Matrix4x4[] skyViews = { rightView, leftView, upView, downView, backView, frontView };
+#endif // OPTIMISATION
 
 #if UNITY_6000_0_OR_NEWER
         private readonly RendererListHandle[] rendererListHandles = new RendererListHandle[6];
 #endif
-        private readonly Matrix4x4[] skyViewMatrices = new Matrix4x4[6];
 
+#if OPTIMISATION
+        private readonly Matrix4x4[] skyViewMatrices = {
+            rightView * Matrix4x4.Scale(new Vector3(1.0f, 1.0f, -1.0f)),
+            leftView * Matrix4x4.Scale(new Vector3(1.0f, 1.0f, -1.0f)),
+            upView * Matrix4x4.Scale(new Vector3(1.0f, 1.0f, -1.0f)),
+            downView * Matrix4x4.Scale(new Vector3(1.0f, 1.0f, -1.0f)),
+            backView * Matrix4x4.Scale(new Vector3(1.0f, 1.0f, -1.0f)),
+            frontView * Matrix4x4.Scale(new Vector3(1.0f, 1.0f, -1.0f)),
+        };
+#else
+        private readonly Matrix4x4[] skyViewMatrices = new Matrix4x4[6];
+#endif // OPTIMISATION
 
         private static readonly Vector4 m_ScaleBias = new Vector4(1.0f, 1.0f, 0.0f, 0.0f);
 
@@ -2078,6 +2105,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         }
 
         #region Non Render Graph Pass
+#if URP_COMPATIBILITY_MODE
 #if UNITY_6000_0_OR_NEWER
         [Obsolete]
 #endif
@@ -2160,14 +2188,12 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                     cmd.SetViewMatrix(skyViewMatrices[i]);
                     //cmd.SetGlobalMatrix(unity_MatrixVP, skyMatrixVP);
                     cmd.SetGlobalMatrix(unity_MatrixInvVP, skyMatrixVP.inverse);
-                    
-#if AMBIENT_PROBE
+
                     if (isPbrSky)
                     {
                         Blitter.BlitTexture(cmd, probeColorHandle, m_ScaleBias, RenderSettings.skybox, pass: 1);
                     }
                     else
-#endif // AMBIENT_PROBE
                     {
                         RendererList rendererList = context.CreateSkyboxRendererList(camera, skyProjectionMatrix, skyViewMatrices[i]);
                         cmd.DrawRendererList(rendererList);
@@ -2199,10 +2225,8 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 }
 
                 cmd.SetGlobalTexture(glossyEnvironmentCubeMap, probeColorHandle);
-#if AMBIENT_PROBE
                 RenderSettings.defaultReflectionMode = isDynamicAmbientMode ? DefaultReflectionMode.Custom : RenderSettings.defaultReflectionMode;
                 RenderSettings.customReflectionTexture = isDynamicAmbientMode ? probeColorHandle : null;
-#endif // AMBIENT_PROBE
                 cmd.SetGlobalVector(worldSpaceCameraPos, cameraPositionWS);
                 cmd.SetGlobalFloat(disableSunDisk, 0.0f);
 
@@ -2221,9 +2245,10 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
             context.ExecuteCommandBuffer(cmd);
             cmd.Clear();
-            
+
             CommandBufferPool.Release(cmd);
         }
+#endif // URP_COMPATIBILITY_MODE
         #endregion
 
 #if UNITY_6000_0_OR_NEWER
@@ -2269,10 +2294,30 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
             Matrix4x4 skyMatrixP = GL.GetGPUProjectionMatrix(data.skyProjectionMatrix, true);
 
+#if OPTIMISATION
+            const Unity.Collections.Allocator allocator = Unity.Collections.Allocator.TempJob;
+            const Unity.Collections.NativeArrayOptions options = Unity.Collections.NativeArrayOptions.UninitializedMemory;
+
+            using var invSkyViewMatrices = new Unity.Collections.NativeArray<float4x4>(data.skyViewMatrices.Length, allocator, options);
+            var nativeSkyViewMatrices = new Unity.Collections.NativeArray<float4x4>(data.skyViewMatrices.Length, allocator, options);
+            data.skyViewMatrices.AsSpan().CopyTo(nativeSkyViewMatrices.Reinterpret<Matrix4x4>());
+
+            Unity.Jobs.IJobForExtensions.Run(new SkyMatrixVPJob
+            {
+                invSkyViewMatrices = invSkyViewMatrices,
+                skyViewMatrices = nativeSkyViewMatrices,
+                skyMatrixP = skyMatrixP,
+            }, data.skyViewMatrices.Length);
+#endif // OPTIMISATION
+
             for (int i = 0; i < 6; i++)
             {
                 CoreUtils.SetRenderTarget(cmd, data.hasVolumetricClouds ? data.skyColorHandle : data.probeColorHandle, ClearFlag.None, 0, (CubemapFace)i);
 
+#if OPTIMISATION
+                cmd.SetViewMatrix(data.skyViewMatrices[i]);
+                context.cmd.SetGlobalMatrix(unity_MatrixInvVP, invSkyViewMatrices[i]);
+#else
                 Matrix4x4 skyMatrixVP = skyMatrixP * data.skyViewMatrices[i];
 
                 // Camera matrices for skybox rendering
@@ -2280,7 +2325,8 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 //cmd.SetProjectionMatrix(skyMatrixP);
                 //context.cmd.SetGlobalMatrix(unity_MatrixVP, skyMatrixVP);
                 context.cmd.SetGlobalMatrix(unity_MatrixInvVP, skyMatrixVP.inverse);
-                
+#endif // OPTIMISATION
+
                 if (data.isPbrSky)
                 {
                     Blitter.BlitTexture(cmd, data.probeColorHandle, m_ScaleBias, RenderSettings.skybox, pass: 1);
@@ -2301,12 +2347,17 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
                 for (int i = 0; i < 6; i++)
                 {
+#if OPTIMISATION
+                    cmd.SetViewMatrix(data.skyViewMatrices[i]);
+                    context.cmd.SetGlobalMatrix(unity_MatrixInvVP, invSkyViewMatrices[i]);
+#else
                     Matrix4x4 skyMatrixVP = skyMatrixP * data.skyViewMatrices[i];
                     // Camera matrices for skybox rendering
                     cmd.SetViewMatrix(data.skyViewMatrices[i]);
                     //cmd.SetProjectionMatrix(skyMatrixP);
                     //context.cmd.SetGlobalMatrix(unity_MatrixVP, skyMatrixVP);
                     context.cmd.SetGlobalMatrix(unity_MatrixInvVP, skyMatrixVP.inverse);
+#endif // OPTIMISATION
 
                     CoreUtils.SetRenderTarget(cmd, data.probeColorHandle, ClearFlag.None, 0, (CubemapFace)i);
                     Blitter.BlitTexture(cmd, data.probeColorHandle, m_ScaleBias, data.cloudsMaterial, pass: 8);
@@ -2333,6 +2384,31 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 cmd.EnableShaderKeyword(STEREO_INSTANCING_ON);
         }
 
+#if OPTIMISATION
+#if ENABLE_BURST_1_0_0_OR_NEWER
+        [Unity.Burst.BurstCompile(FloatMode = Unity.Burst.FloatMode.Fast)]
+#endif // ENABLE_BURST_1_0_0_OR_NEWER
+        struct SkyMatrixVPJob : Unity.Jobs.IJobFor
+        {
+            [Unity.Collections.WriteOnly]
+            [Unity.Collections.NativeFixedLength(6)]
+            [Unity.Collections.NativeMatchesParallelForLength]
+            public Unity.Collections.NativeArray<float4x4> invSkyViewMatrices;
+
+            [Unity.Collections.ReadOnly, Unity.Collections.DeallocateOnJobCompletion]
+            [Unity.Collections.NativeFixedLength(6)]
+            [Unity.Collections.NativeMatchesParallelForLength]
+            public Unity.Collections.NativeArray<float4x4> skyViewMatrices;
+
+            public float4x4 skyMatrixP;
+
+            public void Execute(int index)
+            {
+                invSkyViewMatrices[index] = inverse(mul(skyMatrixP, skyViewMatrices[index]));
+            }
+        }
+#endif // OPTIMISATION
+
         // This is where the renderGraph handle can be accessed.
         // Each ScriptableRenderPass can use the RenderGraph handle to add multiple render passes to the render graph
         public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
@@ -2342,8 +2418,10 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             {
                 // UniversalResourceData contains all the texture handles used by the renderer, including the active color and depth textures
                 // The active color and depth textures are the main color and depth buffers that the camera renders into
+#if UNUSED
                 UniversalRenderingData universalRenderingData = frameData.Get<UniversalRenderingData>();
                 UniversalResourceData resourceData = frameData.Get<UniversalResourceData>();
+#endif // UNUSED
                 UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();
 
                 bool hasVolumetricClouds = cloudsMaterial != null && Shader.IsKeywordEnabled(VOLUMETRIC_CLOUDS);
@@ -2351,7 +2429,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 RenderTextureDescriptor desc = cameraData.cameraTargetDescriptor;
 
                 float2 cameraResolution = float2(desc.width, desc.height);
-                
+
                 desc.msaaSamples = 1;
                 desc.useMipMap = true;
                 desc.autoGenerateMips = true;
@@ -2383,9 +2461,13 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                     //var lookAt = Matrix4x4.LookAt(Vector3.zero, CoreUtils.lookAtList[i], CoreUtils.upVectorList[i]);
                     //Matrix4x4 viewMatrix = lookAt * Matrix4x4.Scale(new Vector3(1.0f, 1.0f, -1.0f)); // Need to scale -1.0 on Z to match what is being done in the camera.wolrdToCameraMatrix API. ...
 
+#if OPTIMISATION
+                    Matrix4x4 viewMatrix = skyViewMatrices[i];
+#else
                     Matrix4x4 viewMatrix = skyViews[i];
                     viewMatrix *= Matrix4x4.Scale(new Vector3(1.0f, 1.0f, -1.0f)); // Need to scale -1.0 on Z to match what is being done in the camera.wolrdToCameraMatrix API. ...
                     skyViewMatrices[i] = viewMatrix;
+#endif // OPTIMISATION
                     rendererListHandles[i] = renderGraph.CreateSkyboxRendererList(cameraData.camera, skyProjectionMatrix, viewMatrix);
                     builder.UseRendererList(rendererListHandles[i]);
                 }
