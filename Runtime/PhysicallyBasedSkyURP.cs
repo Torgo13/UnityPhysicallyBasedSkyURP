@@ -199,6 +199,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         VisualEnvironment visualEnvVolume = stack.GetComponent<VisualEnvironment>();
 #endif // AMBIENT_PROBE
 
+#if DEBUG
         // Validate sky shaders
         bool shadersValid = true;
         if (m_Shader != Shader.Find(k_PbrSkyShaderName))
@@ -226,6 +227,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         }
 
         if (!shadersValid) return;
+#endif // DEBUG
         isShaderMismatchLogPrinted = false;
 
         // Cleanup settings when disabled
@@ -297,8 +299,12 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
     public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
     {
+#if DEBUG
+        bool shouldDisable = false;
+#else
         // Do not add render passes if any error occurs.
         bool shouldDisable = isShaderMismatchLogPrinted || m_PbrSkyMaterial == null || m_PbrSkyLUTMaterial == null;
+#endif // DEBUG
 
 #if BUGFIX
         var cam = renderingData.cameraData.camera;
@@ -317,8 +323,11 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         VisualEnvironment visualEnvVolume = stack.GetComponent<VisualEnvironment>();
         Fog fogVolume = stack.GetComponent<Fog>();
 
+#if DEBUG
+        const bool isPbrSky = true;
+#else
         bool isPbrSky = pbrSkyVolume != null && visualEnvVolume != null && visualEnvVolume.IsActive() && visualEnvVolume.skyType.value == (int)VisualEnvironment.SkyType.PhysicallyBased;
-
+#endif // DEBUG
         {
             bool halfResolutionLuts = m_Precomputation == PrecomputationQualityMode.Low;
 
@@ -378,11 +387,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             m_AmbientProbePass.cloudsMaterial = ValidateCloudsMaterial();
             m_AmbientProbePass.isPbrSky = isPbrSky;
             Shader.EnableKeyword(k_DynamicAmbientProbeKeywordName);
-#if PBRSKY_SCATTERING
-#else
-            if (isPbrSky)
-#endif // PBRSKY_SCATTERING
-                renderer.EnqueuePass(m_AmbientProbePass);
+            renderer.EnqueuePass(m_AmbientProbePass);
         }
         else
         {
@@ -404,10 +409,8 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         if (m_AtmosphericScatteringPass != null)
             m_AtmosphericScatteringPass.Dispose();
 
-#if AMBIENT_PROBE
         if (m_AmbientProbePass != null)
             m_AmbientProbePass.Dispose();
-#endif // AMBIENT_PROBE
 
         if (m_PBSkyPostPass != null)
             m_PBSkyPostPass.Dispose();
@@ -418,9 +421,13 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
     private Material ValidateCloudsMaterial()
     {
+#if DEBUG
+        return m_VolumetricCloudsMaterial;
+#else
         return m_VolumetricCloudsMaterial != null && m_VolumetricCloudsMaterial.shader == Shader.Find(k_CloudsShaderName)
             ? m_VolumetricCloudsMaterial
             : null;
+#endif // DEBUG
     }
 
     private void UpdateSkySettings(bool isPbrSky, VisualEnvironment visualEnvVolume)
@@ -779,13 +786,15 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();
 
                 Light mainLight = GetMainLight(lightData);
+                bool mainLightFound = mainLight != null;
                 Vector3 camera = cameraData.camera.transform.position;
-
+                float3 forward = default;
                 float3 mainLightColor = 0.0f;
-                if (mainLight != null)
+                if (mainLightFound)
                 {
-                    var cameraPositionWS = float3(camera);
-                    float3 sunAttenuation = EvaluateSunColorAttenuation(cameraPositionWS - visualEnvironment.GetPlanetCenterRadius(cameraPositionWS).xyz, -mainLight.transform.forward);
+                    forward = mainLight.transform.forward;
+                    float3 cameraPositionWS = (float3)camera;
+                    float3 sunAttenuation = EvaluateSunColorAttenuation(cameraPositionWS - visualEnvironment.GetPlanetCenterRadius(cameraPositionWS).xyz, -forward);
 
                     Color color = mainLight.color.linear * (mainLight.useColorTemperature ? Mathf.CorrelatedColorTemperatureToRGB(mainLight.colorTemperature) : Color.white);
                     mainLightColor = float3(color.r, color.g, color.b) * mainLight.intensity * sunAttenuation;
@@ -801,9 +810,9 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 lutMaterial.CopyPropertiesFromMaterial(material);
 
 #if AMBIENT_PROBE
-                if (mainLight != null && visualEnvironment.skyAmbientMode.value == VisualEnvironment.SkyAmbientMode.Dynamic)
+                if (mainLightFound && visualEnvironment.skyAmbientMode.value == VisualEnvironment.SkyAmbientMode.Dynamic)
                 {
-                    ambientProbe = UpdateAmbientProbe(ambientProbe, mainLight.transform.forward, mainLightColor);
+                    ambientProbe = UpdateAmbientProbe(ambientProbe, forward, mainLightColor);
                     RenderSettings.ambientProbe = ambientProbe;
                 }
 #endif // AMBIENT_PROBE
@@ -813,7 +822,6 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 passData.isReflectionCamera = cameraData.camera.cameraType == CameraType.Reflection;
 
                 builder.AllowGlobalStateModification(true);
-                //builder.SetShadingRateFragmentSize(GetFragmentSize());
 
                 // Assign the ExecutePass function to the render pass delegate, which will be called by the render graph when executing the pass
                 builder.SetRenderFunc(static (PassData data, RasterGraphContext context) => ExecutePass(data, context));
@@ -833,6 +841,65 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         {
             ambientProbe.Clear();
 
+#if OPTIMISATION
+            const Unity.Collections.Allocator allocator = Unity.Collections.Allocator.TempJob;
+            const Unity.Collections.NativeArrayOptions options = Unity.Collections.NativeArrayOptions.UninitializedMemory;
+
+            var colours = new Unity.Collections.NativeArray<Color>(fibonacciSamplesCount, allocator, options);
+            var fibonacciSamplesNative = new Unity.Collections.NativeArray<float3>(fibonacciSamples, allocator);
+
+            var renderSkyJob = new RenderSkyJob
+            {
+                colours = colours,
+                fibonacciSamples = fibonacciSamplesNative,
+                lightDirection = lightDirection,
+                lightColor = lightColor,
+
+                airScaleHeight = pbrSky.GetAirScaleHeight(),
+                aerosolScaleHeight = pbrSky.GetAerosolScaleHeight(),
+                airExtinctionCoefficient = pbrSky.GetAirExtinctionCoefficient(),
+                aerosolExtinctionCoefficient = pbrSky.GetAerosolExtinctionCoefficient(),
+                ozoneLayerMinimumAltitude = pbrSky.GetOzoneLayerMinimumAltitude(),
+                ozoneLayerWidth = pbrSky.GetOzoneLayerWidth(),
+                ozoneExtinctionCoefficient = pbrSky.GetOzoneExtinctionCoefficient(),
+                maximumAltitude = pbrSky.GetMaximumAltitude(),
+                groundTint = pbrSky.groundTint.value,
+
+                alphaSaturation = pbrSky.alphaSaturation.value,
+                alphaMultiplier = pbrSky.alphaMultiplier.value,
+                type = pbrSky.type.value,
+                airMaximumAltitude = pbrSky.airMaximumAltitude.value,
+                airDensityR = pbrSky.airDensityR.value,
+                airDensityG = pbrSky.airDensityG.value,
+                airDensityB = pbrSky.airDensityB.value,
+                airTint = pbrSky.airTint.value,
+                aerosolMaximumAltitude = pbrSky.aerosolMaximumAltitude.value,
+                aerosolDensity = pbrSky.aerosolDensity.value,
+                aerosolTint = pbrSky.aerosolTint.value,
+                aerosolAnisotropy = pbrSky.aerosolAnisotropy.value,
+                colorSaturation = pbrSky.colorSaturation.value,
+                horizonZenithShift = pbrSky.horizonZenithShift.value,
+                horizonTint = pbrSky.horizonTint.value,
+                zenithTint = pbrSky.zenithTint.value,
+                skyIntensityMode = pbrSky.skyIntensityMode.value,
+                exposure = pbrSky.exposure.value,
+                multiplier = pbrSky.multiplier.value,
+                desiredLuxValue = pbrSky.desiredLuxValue.value,
+                upperHemisphereLuxValue = pbrSky.upperHemisphereLuxValue.value,
+            };
+
+            Unity.Jobs.IJobForExtensions.RunByRef(ref renderSkyJob, fibonacciSamplesCount);
+
+            const float weightOverPdf = (float)(PI_DBL * 4.0 / fibonacciSamplesCount);
+
+            var fibonacciSamplesSpan = System.Runtime.InteropServices.MemoryMarshal.Cast<float3, Vector3>((ReadOnlySpan<float3>)fibonacciSamples);
+            for (int i = 0; i < fibonacciSamplesCount; i++)
+            {
+                ambientProbe.AddDirectionalLight(fibonacciSamplesSpan[i], colours[i], weightOverPdf);
+            }
+
+            colours.Dispose();
+#else
             float weightOverPdf = 4.0f * PI * rcp(fibonacciSamplesCount);
             for (int i = 0; i < fibonacciSamplesCount; i++)
             {
@@ -843,7 +910,78 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 Color color = new Color(skyColor.x, skyColor.y, skyColor.z);
                 ambientProbe.AddDirectionalLight(V, color, weightOverPdf);
             }
+#endif // OPTIMISATION
+
             return ambientProbe;
+        }
+
+#if ENABLE_BURST_1_0_0_OR_NEWER
+        [Unity.Burst.BurstCompile(FloatMode = Unity.Burst.FloatMode.Fast)]
+#endif // ENABLE_BURST_1_0_0_OR_NEWER
+        struct RenderSkyJob : Unity.Jobs.IJobFor
+        {
+            [Unity.Collections.WriteOnly]
+            [Unity.Collections.NativeFixedLength(fibonacciSamplesCount)]
+            [Unity.Collections.NativeMatchesParallelForLength]
+            public Unity.Collections.NativeArray<Color> colours;
+
+            [Unity.Collections.DeallocateOnJobCompletion]
+            [Unity.Collections.ReadOnly]
+            [Unity.Collections.NativeFixedLength(fibonacciSamplesCount)]
+            [Unity.Collections.NativeMatchesParallelForLength]
+            public Unity.Collections.NativeArray<float3> fibonacciSamples;
+
+            public float3 lightDirection;
+            public float3 lightColor;
+
+            public float airScaleHeight;
+            public float aerosolScaleHeight;
+            public Vector3 airExtinctionCoefficient;
+            public float aerosolExtinctionCoefficient;
+            public float ozoneLayerMinimumAltitude;
+            public float ozoneLayerWidth;
+            public Vector3 ozoneExtinctionCoefficient;
+            public float maximumAltitude;
+            public Color groundTint;
+
+            public float alphaSaturation;
+            public float alphaMultiplier;
+            public PhysicallyBasedSky.PhysicallyBasedSkyModel type;
+            public float airMaximumAltitude;
+            public float airDensityR;
+            public float airDensityG;
+            public float airDensityB;
+            public Color airTint;
+            public float aerosolMaximumAltitude;
+            public float aerosolDensity;
+            public Color aerosolTint;
+            public float aerosolAnisotropy;
+            public float colorSaturation;
+            public float horizonZenithShift;
+            public Color horizonTint;
+            public Color zenithTint;
+            public PhysicallyBasedSky.SkyIntensityMode skyIntensityMode;
+            public float exposure;
+            public float multiplier;
+            public float desiredLuxValue;
+            public float upperHemisphereLuxValue;
+
+            public void Execute(int index)
+            {
+                float3 V = fibonacciSamples[index];
+
+                PhysicallyBasedSky.RenderSky(-lightDirection, lightColor, V, out float3 skyColor,
+                    airScaleHeight, aerosolScaleHeight, airExtinctionCoefficient, aerosolExtinctionCoefficient,
+                    ozoneLayerMinimumAltitude, ozoneLayerWidth, ozoneExtinctionCoefficient,
+                    maximumAltitude, groundTint, alphaSaturation, alphaMultiplier,
+                    type, airMaximumAltitude,
+                    airDensityR, airDensityG, airDensityB, airTint,
+                    aerosolMaximumAltitude, aerosolDensity, aerosolTint, aerosolAnisotropy,
+                    colorSaturation, horizonZenithShift, horizonTint, zenithTint,
+                    skyIntensityMode, exposure, multiplier, desiredLuxValue, upperHemisphereLuxValue);
+
+                colours[index] = new Color(skyColor.x, skyColor.y, skyColor.z);
+            }
         }
 #endif // AMBIENT_PROBE
 
@@ -2605,7 +2743,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
             desc.msaaSamples = 1;
             desc.useMipMap = true;
-            desc.autoGenerateMips = false;//true;
+            desc.autoGenerateMips = false; //true;
             desc.width = reflectionResolution;
             desc.height = reflectionResolution;
             desc.dimension = TextureDimension.Cube;
@@ -2658,12 +2796,13 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
             // Sort the directions so faces with the same ShadingRateFragmentSize are rendered together
             var forward = cameraData.camera.transform.forward;
+            var aspectRatio = (float)cameraData.cameraTargetDescriptor.height / cameraData.cameraTargetDescriptor.width;
             ReadOnlySpan<float> directions = stackalloc float[6]
             {
                 Vector3.Distance(Vector3.left, forward),
                 Vector3.Distance(Vector3.right, forward),
-                Vector3.Distance(Vector3.down, forward),
-                Vector3.Distance(Vector3.up, forward),
+                Vector3.Distance(Vector3.down, forward) * aspectRatio,
+                Vector3.Distance(Vector3.up, forward) * aspectRatio,
                 Vector3.Distance(Vector3.back, forward),
                 Vector3.Distance(Vector3.forward, forward),
             };
@@ -2673,7 +2812,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             Span<int> order = stackalloc int[6];
             for (int i = 0; i < 6; i++)
             {
-                if (directions[i] >= 1)
+                if (directions[i] > 0.85f)
                 {
                     order[start++] = i;
                 }
@@ -2825,18 +2964,4 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         #endregion
     }
 #endif // AMBIENT_PROBE
-
-#if UNITY_6000_3_OR_NEWER
-    private static ShadingRateFragmentSize GetFragmentSize()
-    {
-        return ScalableBufferManager.widthScaleFactor switch
-        {
-            <= 0.25f => ShadingRateFragmentSize.FragmentSize4x4,
-            <= 0.4f => ShadingRateFragmentSize.FragmentSize2x4,
-            <= 0.6f => ShadingRateFragmentSize.FragmentSize2x2,
-            <= 0.8f => ShadingRateFragmentSize.FragmentSize1x2,
-            _ => ShadingRateFragmentSize.FragmentSize1x1,
-        };
-    }
-#endif // UNITY_6000_3_OR_NEWER
 }
