@@ -268,7 +268,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         // Initialize render passes
         m_PBSkyPrePass ??= new PBSkyPrePass(m_PbrSkyMaterial, m_CelestialBodyData)
         {
-            renderPassEvent = RenderPassEvent.BeforeRenderingPrePasses + 1 // After Volumetric Clouds PrePasses
+            renderPassEvent = RenderPassEvent.BeforeRenderingPrePasses
         };
 
         m_PBSkyPrePass.material = m_PbrSkyMaterial;
@@ -276,7 +276,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
         m_SkyViewLUTPass ??= new SkyViewLUTPass(m_PbrSkyLUTMaterial, ref m_CelestialBodyData)
         {
-            renderPassEvent = RenderPassEvent.AfterRenderingPrePasses
+            renderPassEvent = RenderPassEvent.AfterRenderingPrePasses - 2 // Before Volumetric Clouds PrePasses
         };
 
         m_SkyViewLUTPass.lutMaterial = m_PbrSkyLUTMaterial;
@@ -1584,10 +1584,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         {
             RasterCommandBuffer cmd = context.cmd;
 
-            if (data.cameraSpaceSky)
-            {
-                Blitter.BlitTexture(cmd, data.skyViewLUTHandle, m_ScaleBias, data.lutMaterial, pass: 0);
-            }
+            Blitter.BlitTexture(cmd, data.skyViewLUTHandle, m_ScaleBias, data.lutMaterial, pass: 0);
         }
 
         static void ExecuteGroundIrradiancePass(PassData data, RasterGraphContext context)
@@ -1770,22 +1767,22 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 passData.precomputationChanged = precomputationChanged || lutDataChanged;
                 passData.lutMaterial = lutMaterial;
 
-                builder.SetRenderAttachment(passData.multiScatteringLUTHandle, index: 0, passData.precomputationChanged ? AccessFlags.ReadWrite : AccessFlags.Read);
+                builder.SetRenderAttachment(passData.multiScatteringLUTHandle, index: 0, passData.precomputationChanged ? AccessFlags.WriteAll : AccessFlags.None);
 
                 builder.SetRenderFunc(static (PassData data, RasterGraphContext context) => ExecuteMultiScatteringPass(data, context));
             }
 
-            using (var builder = renderGraph.AddRasterRenderPass<PassData>(profilerTag, out var passData, m_ProfilingSampler))
+            if (visualEnvironment.renderingSpace.value == VisualEnvironment.RenderingSpace.Camera)
             {
-                passData.skyViewLUTHandle = skyViewLUTTextureHandle;
-                passData.cameraSpaceSky = visualEnvironment.renderingSpace.value == VisualEnvironment.RenderingSpace.Camera;
-                passData.lutMaterial = lutMaterial;
+                using (var builder = renderGraph.AddRasterRenderPass<PassData>(profilerTag, out var passData, m_ProfilingSampler))
+                {
+                    passData.skyViewLUTHandle = skyViewLUTTextureHandle;
+                    passData.lutMaterial = lutMaterial;
 
-                builder.SetRenderAttachment(passData.skyViewLUTHandle, index: 0, passData.cameraSpaceSky ? AccessFlags.ReadWrite : AccessFlags.Read);
+                    builder.SetRenderAttachment(passData.skyViewLUTHandle, index: 0, passData.cameraSpaceSky ? AccessFlags.WriteAll : AccessFlags.None);
 
-                //builder.SetGlobalTextureAfterPass(passData.skyViewLUTHandle, skyViewLUT);
-
-                builder.SetRenderFunc(static (PassData data, RasterGraphContext context) => ExecuteSkyViewPass(data, context));
+                    builder.SetRenderFunc(static (PassData data, RasterGraphContext context) => ExecuteSkyViewPass(data, context));
+                }
             }
 
             if (precomputationChanged || lutDataChanged)
@@ -1836,9 +1833,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                     passData.lutMaterial = lutMaterial;
                     passData.groundIrradianceHandle = groundIrradianceTextureHandle;
 
-                    builder.SetRenderAttachment(passData.groundIrradianceHandle, index: 0, AccessFlags.ReadWrite);
-
-                    //builder.SetGlobalTextureAfterPass(passData.groundIrradianceHandle, groundIrradianceTexture);
+                    builder.SetRenderAttachment(passData.groundIrradianceHandle, index: 0, AccessFlags.WriteAll);
 
                     builder.SetRenderFunc(static (PassData data, RasterGraphContext context) => ExecuteGroundIrradiancePass(data, context));
                 }
@@ -2758,13 +2753,12 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             const Unity.Collections.NativeArrayOptions options = Unity.Collections.NativeArrayOptions.UninitializedMemory;
 
             var nativeInvSkyViewMatrices = new Unity.Collections.NativeArray<Matrix4x4>(skyViewMatrices.Length, allocator, options);
-            var nativeSkyViewMatrices = new Unity.Collections.NativeArray<float4x4>(skyViewMatrices.Length, allocator, options);
-            nativeSkyViewMatrices.Reinterpret<Matrix4x4>().CopyFrom(skyViewMatrices);
+            var nativeSkyViewMatrices = new Unity.Collections.NativeArray<Matrix4x4>(skyViewMatrices, allocator);
 
             Unity.Jobs.IJobForExtensions.Run(new SkyMatrixVPJob
             {
                 invSkyViewMatrices = nativeInvSkyViewMatrices.Reinterpret<float4x4>(),
-                skyViewMatrices = nativeSkyViewMatrices,
+                skyViewMatrices = nativeSkyViewMatrices.Reinterpret<float4x4>(),
                 skyMatrixP = GL.GetGPUProjectionMatrix(skyProjectionMatrix, renderIntoTexture: true),
             }, skyViewMatrices.Length);
 
@@ -2777,14 +2771,13 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             desc.autoGenerateMips = false;
             desc.dimension = TextureDimension.Tex2DArray;
             desc.volumeDepth = 6;
-            desc.enableRandomWrite = true;
             RenderingUtils.ReAllocateHandleIfNeeded(ref skyColorHandle, desc, FilterMode.Bilinear, TextureWrapMode.Repeat, name: _SkyTexture);
             TextureHandle skyColorTextureHandle = renderGraph.ImportTexture(skyColorHandle);
 
             using (var builder = renderGraph.AddRasterRenderPass<PassData>(profilerTag, out var passData, m_ProfilingSampler))
             {
-                passData.skyTextureMipCounts = visualEnvironment.skyAmbientMode.value == VisualEnvironment.SkyAmbientMode.Dynamic ?
-                    skyColorHandle.rt.mipmapCount : 0;
+                passData.skyTextureMipCounts = 0; //visualEnvironment.skyAmbientMode.value == VisualEnvironment.SkyAmbientMode.Dynamic ?
+                    //skyColorHandle.rt.mipmapCount : 0;
 
                 // Shader keyword changes are considered as global state modifications
                 builder.AllowGlobalStateModification(true);
@@ -2793,13 +2786,15 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             }
 
             desc.useMipMap = true;
+            desc.autoGenerateMips = false;
             desc.dimension = TextureDimension.Cube;
             desc.volumeDepth = 1;
             RenderingUtils.ReAllocateHandleIfNeeded(ref probeColorHandle, desc, FilterMode.Trilinear, TextureWrapMode.Repeat, name: _GlossyEnvironmentCubeMap);
             TextureHandle probeColorTextureHandle = renderGraph.ImportTexture(probeColorHandle);
 
             // Sort the directions so faces with the same ShadingRateFragmentSize are rendered together
-            var forward = cameraData.camera.transform.forward;
+            cameraData.camera.transform.GetPositionAndRotation(out var cameraPositionWS, out var rot);
+            var forward = rot * Vector3.forward;
             var aspectRatio = (float)cameraData.cameraTargetDescriptor.height / cameraData.cameraTargetDescriptor.width;
             ReadOnlySpan<float> directions = stackalloc float[6]
             {
@@ -2838,13 +2833,12 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                     passData.cloudsMaterial = cloudsMaterial;
 
                     // Fill up the passData with the data needed by the pass
-                    passData.skyViewMatrices = skyViewMatrices;
                     passData.cloudsMaterial = cloudsMaterial;
                     passData.isStereoEnabled = cameraData.camera.stereoEnabled;
 
                     passData.invSkyViewMatrices = invSkyViewMatrices;
 
-                    cameraData.camera.SetStereoViewMatrix(default, skyViewMatrices[passData.i]);
+                    //cameraData.camera.SetStereoViewMatrix(default, skyViewMatrices[passData.i]);
 
                     builder.SetRenderAttachment(passData.skyColorHandle, index: 0, AccessFlags.Write, mipLevel: 0, depthSlice: passData.i);
 
@@ -2863,7 +2857,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 passData.probeColorHandle = probeColorTextureHandle;
 
                 // Fill up the passData with the data needed by the pass
-                passData.cameraPositionWS = cameraData.camera.transform.position;
+                passData.cameraPositionWS = cameraPositionWS;
                 passData.cameraScreenSize = new Vector4(cameraResolution.x, cameraResolution.y, rcp(cameraResolution.x), rcp(cameraResolution.y));
                 passData.cameraScreenParams = new Vector4(cameraResolution.x, cameraResolution.y, 1.0f + passData.cameraScreenSize.z, 1.0f + passData.cameraScreenSize.w);
                 passData.worldToCameraMatrix = cameraData.camera.worldToCameraMatrix;
@@ -2873,7 +2867,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
                 passData.skyTextureMipCounts = skyTextureMipCounts;
 
-                cameraData.camera.SetStereoViewMatrix(default, passData.worldToCameraMatrix);
+                //cameraData.camera.SetStereoViewMatrix(default, passData.worldToCameraMatrix);
                 //builder.SetGlobalTextureAfterPass(passData.skyColorHandle, skyTexture);
                 builder.SetGlobalTextureAfterPass(passData.probeColorHandle, glossyEnvironmentCubeMap);
 
