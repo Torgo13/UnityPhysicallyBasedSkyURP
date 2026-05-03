@@ -2741,7 +2741,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
             float2 cameraResolution = float2(desc.width, desc.height);
 
-            reflectionResolution = (int)(256 * ScalableBufferManager.widthScaleFactor);
+            reflectionResolution = Mathf.ClosestPowerOfTwo((int)(256 * ScalableBufferManager.widthScaleFactor));
 
             desc.msaaSamples = 1;
             desc.useMipMap = true;
@@ -2786,8 +2786,6 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 passData.skyTextureMipCounts = visualEnvironment.skyAmbientMode.value == VisualEnvironment.SkyAmbientMode.Dynamic ?
                     skyColorHandle.rt.mipmapCount : 0;
 
-                //passData.cameraPositionWS = cameraData.camera.transform.position;
-
                 // Shader keyword changes are considered as global state modifications
                 builder.AllowGlobalStateModification(true);
 
@@ -2818,7 +2816,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             Span<int> order = stackalloc int[6];
             for (int i = 0; i < 6; i++)
             {
-                if (directions[i] > 0.85f)
+                if (directions[i] > 1f)
                 {
                     order[start++] = i;
                 }
@@ -2873,7 +2871,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 passData.isDynamicAmbientMode = visualEnvironment.skyAmbientMode.value == VisualEnvironment.SkyAmbientMode.Dynamic;
                 passData.isStereoEnabled = cameraData.camera.stereoEnabled;
 
-                passData.invSkyViewMatrices = invSkyViewMatrices;
+                passData.skyTextureMipCounts = skyTextureMipCounts;
 
                 cameraData.camera.SetStereoViewMatrix(default, passData.worldToCameraMatrix);
                 //builder.SetGlobalTextureAfterPass(passData.skyColorHandle, skyTexture);
