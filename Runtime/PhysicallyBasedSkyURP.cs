@@ -2600,13 +2600,15 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 context.cmd.SetGlobalMatrix(unity_MatrixInvVP, skyMatrixVP.inverse);
 #endif // OPTIMISATION
 
-                Blitter.BlitTexture(cmd, data.probeColorHandle, m_ScaleBias, skybox, pass: 1);
+                Blitter.BlitTexture(cmd, m_ScaleBias, skybox, pass: 1);
 
                 //CoreUtils.SetRenderTarget(cmd, data.probeColorHandle, ClearFlag.None, 0, (CubemapFace)i);
-                Blitter.BlitTexture(cmd, data.probeColorHandle, m_ScaleBias, data.cloudsMaterial, pass: 8);
+                Blitter.BlitTexture(cmd, m_ScaleBias, data.cloudsMaterial, pass: 8);
             }
 
+#if ZERO
             cmd.SetGlobalTexture(skyTexture, data.probeColorHandle);
+#endif // ZERO
             cmd.SetGlobalFloat(skyTextureMipCounts, data.skyTextureMipCounts);
 
 #if ZERO
@@ -2732,7 +2734,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             desc.dimension = TextureDimension.Tex2DArray;
             desc.volumeDepth = 6;
             RenderingUtils.ReAllocateHandleIfNeeded(ref skyColorHandle, desc, FilterMode.Bilinear, TextureWrapMode.Repeat, name: _SkyTexture);
-            TextureHandle skyColorTextureHandle = renderGraph.ImportTexture(skyColorHandle);
+            TextureHandle skyColorTextureHandle = renderGraph.ImportTexture(skyColorHandle, new ImportResourceParams { clearOnFirstUse = false, discardOnLastUse = true, });
 
             using (var builder = renderGraph.AddRasterRenderPass<PassData>(profilerTag, out var passData, m_ProfilingSampler))
             {
@@ -2747,10 +2749,11 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             desc.dimension = TextureDimension.Cube;
             desc.volumeDepth = 1;
             RenderingUtils.ReAllocateHandleIfNeeded(ref probeColorHandle, desc, FilterMode.Trilinear, TextureWrapMode.Repeat, name: _GlossyEnvironmentCubeMap);
-            TextureHandle probeColorTextureHandle = renderGraph.ImportTexture(probeColorHandle);
+            TextureHandle probeColorTextureHandle = renderGraph.ImportTexture(probeColorHandle, new ImportResourceParams { clearOnFirstUse = false, discardOnLastUse = false, });
 
             // Sort the directions so faces with the same ShadingRateFragmentSize are rendered together
             cameraData.camera.transform.GetPositionAndRotation(out var cameraPositionWS, out var rot);
+            visualEnvironment.planetCenter.value = new Vector3(0, -6378.1f, 0) - 0.001f * cameraPositionWS;
             var forward = rot * Vector3.forward;
             var aspectRatio = (float)cameraData.cameraTargetDescriptor.height / cameraData.cameraTargetDescriptor.width;
             ReadOnlySpan<float> directions = stackalloc float[6]
@@ -2778,6 +2781,9 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 }
             }
 
+            var worldToCameraMatrix = cameraData.camera.worldToCameraMatrix;
+            var projectionMatrix = cameraData.camera.projectionMatrix;
+
             for (int i = 0; i < 6; i++)
             {
                 int j = i;
@@ -2792,11 +2798,13 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                     passData.cloudsMaterial = cloudsMaterial;
                     passData.isStereoEnabled = cameraData.camera.stereoEnabled;
 
+                    passData.skyViewMatrices = skyViewMatrices;
                     passData.invSkyViewMatrices = invSkyViewMatrices;
+                    passData.projectionMatrix = projectionMatrix;
 
                     //cameraData.camera.SetStereoViewMatrix(default, skyViewMatrices[passData.i]);
 
-                    builder.SetRenderAttachment(passData.skyColorHandle, index: 0, AccessFlags.WriteAll, mipLevel: 0, depthSlice: passData.i);
+                    builder.SetRenderAttachment(passData.skyColorHandle, index: 0, AccessFlags.Write, mipLevel: 0, depthSlice: passData.i);
 
                     // Shader keyword changes are considered as global state modifications
                     builder.AllowGlobalStateModification(true);
@@ -2816,8 +2824,8 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 passData.cameraPositionWS = cameraPositionWS;
                 passData.cameraScreenSize = new Vector4(cameraResolution.x, cameraResolution.y, rcp(cameraResolution.x), rcp(cameraResolution.y));
                 passData.cameraScreenParams = new Vector4(cameraResolution.x, cameraResolution.y, 1.0f + passData.cameraScreenSize.z, 1.0f + passData.cameraScreenSize.w);
-                passData.worldToCameraMatrix = cameraData.camera.worldToCameraMatrix;
-                passData.projectionMatrix = cameraData.camera.projectionMatrix;
+                passData.worldToCameraMatrix = worldToCameraMatrix;
+                passData.projectionMatrix = projectionMatrix;
                 passData.isDynamicAmbientMode = visualEnvironment.skyAmbientMode.value == VisualEnvironment.SkyAmbientMode.Dynamic;
                 passData.isStereoEnabled = cameraData.camera.stereoEnabled;
 
@@ -2852,12 +2860,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
                 passData.skyTextureMipCounts = visualEnvironment.skyAmbientMode.value == VisualEnvironment.SkyAmbientMode.Dynamic ?
                     hasVolumetricClouds ? skyColorHandle.rt.mipmapCount : probeColorHandle.rt.mipmapCount : 0;
-#else
-                passData.skyTextureMipCounts = visualEnvironment.skyAmbientMode.value == VisualEnvironment.SkyAmbientMode.Dynamic ?
-                    probeColorHandle.rt.mipmapCount : 0;
 #endif // ZERO
-
-                passData.cloudsMaterial = cloudsMaterial;
 
                 for (int i = 0; i < 6; i++)
                 {
@@ -2891,6 +2894,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 passData.isStereoEnabled = cameraData.camera.stereoEnabled;
 
                 passData.invSkyViewMatrices = invSkyViewMatrices;
+                visualEnvironment.planetCenter.value = new Vector3(0, -6378.1f, 0) - 0.001f * passData.cameraPositionWS;
 
                 // UnsafePasses don't setup the outputs using UseTextureFragment/UseTextureFragmentDepth, you should specify your writes with UseTexture instead
                 builder.UseTexture(passData.probeColorHandle, AccessFlags.Write);
