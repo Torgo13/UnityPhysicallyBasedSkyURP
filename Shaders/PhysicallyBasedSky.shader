@@ -324,7 +324,7 @@ Shader "Hidden/Skybox/PhysicallyBasedSky"
                         */
                     }
                 }
-                /*
+#if 0
                 else if (tFrag == FLT_INF) // See the stars?
                 {
                     UNITY_BRANCH
@@ -335,7 +335,7 @@ Shader "Hidden/Skybox/PhysicallyBasedSky"
                         radiance += _SpaceEmissionMultiplier * ts.rgb;
                     }
                 }
-                */
+#endif // 0
 
                 float3 skyColor = 0, skyOpacity = 0;
 
@@ -558,7 +558,7 @@ Shader "Hidden/Skybox/PhysicallyBasedSky"
                         */
                     }
                 }
-                /*
+#if 0
                 else if (tFrag == FLT_INF) // See the stars?
                 {
                     UNITY_BRANCH
@@ -569,7 +569,7 @@ Shader "Hidden/Skybox/PhysicallyBasedSky"
                         radiance += _SpaceEmissionMultiplier * ts.rgb;
                     }
                 }
-                */
+#endif // 0
 
                 float3 skyColor = 0, skyOpacity = 0;
 

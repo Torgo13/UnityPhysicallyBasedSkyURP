@@ -1,4 +1,3 @@
-#define AMBIENT_PROBE
 using System;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -53,26 +52,16 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
     [SerializeField] private PrecomputationQualityMode m_Precomputation = PrecomputationQualityMode.High;
 
     private bool isShaderMismatchLogPrinted;
-#if AMBIENT_PROBE
     private int lastSkyType;
     private VisualEnvironment.SkyAmbientMode lastSkyAmbientMode;
-#endif // AMBIENT_PROBE
 
     private CelestialBodyData m_CelestialBodyData = new CelestialBodyData();
 
     private PBSkyPrePass m_PBSkyPrePass;
     private SkyViewLUTPass m_SkyViewLUTPass;
     private AtmosphericScatteringPass m_AtmosphericScatteringPass;
-#if AMBIENT_PROBE
     private AmbientProbePass m_AmbientProbePass;
-#endif // AMBIENT_PROBE
     private PBSkyPostPass m_PBSkyPostPass;
-
-#if URP_COMPATIBILITY_MODE
-#if CUSTOM
-    public float3 MainLightColour => m_PBSkyPrePass?.MainLightColor ?? default;
-#endif // CUSTOM
-#endif // URP_COMPATIBILITY_MODE
 
     [Header("Sky")]
     [Tooltip("The fallback sky material when physically based sky is disabled.")]
@@ -87,9 +76,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
     private const string k_CloudsShaderName = "Hidden/Sky/VolumetricClouds";
     private const string k_PbrSkyMaterialName = "Physically Based Sky";
-#if AMBIENT_PROBE
     private const string k_DynamicAmbientProbeKeywordName = "VISUAL_ENVIRONMENT_DYNAMIC_SKY";
-#endif // AMBIENT_PROBE
     private const string k_AtmosphericScatteringLowResolutionKeywordName = "ATMOSPHERIC_SCATTERING_LOW_RES";
 
     /// <summary>
@@ -197,11 +184,9 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
     public override void Create()
     {
-#if AMBIENT_PROBE
         var stack = VolumeManager.instance.stack;
         PhysicallyBasedSky pbrSkyVolume = stack.GetComponent<PhysicallyBasedSky>();
         VisualEnvironment visualEnvVolume = stack.GetComponent<VisualEnvironment>();
-#endif // AMBIENT_PROBE
 
 #if DEBUG
         // Validate sky shaders
@@ -237,7 +222,6 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         // Cleanup settings when disabled
         if (!isActive)
         {
-#if AMBIENT_PROBE
             bool isCustomSkyType = visualEnvVolume != null && visualEnvVolume.IsActive() && visualEnvVolume.skyType.value == (int)VisualEnvironment.SkyType.Custom && visualEnvVolume.customSkyMaterial.value != null;
 
             RenderSettings.skybox = isCustomSkyType ? visualEnvVolume.customSkyMaterial.value : m_FallbackSkyMaterial;
@@ -255,7 +239,6 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 DynamicGI.UpdateEnvironment();
             }
 #endif
-#endif // AMBIENT_PROBE
 
             return;
         }
@@ -281,21 +264,17 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
         m_SkyViewLUTPass.lutMaterial = m_PbrSkyLUTMaterial;
 
-#if PBRSKY_SCATTERING
         m_AtmosphericScatteringPass ??= new AtmosphericScatteringPass(m_PbrSkyLUTMaterial)
         {
             renderPassEvent = RenderPassEvent.AfterRenderingSkybox + 1
         };
 
         m_AtmosphericScatteringPass.lutMaterial = m_PbrSkyLUTMaterial;
-#endif // PBRSKY_SCATTERING
 
-#if AMBIENT_PROBE
         m_AmbientProbePass ??= new AmbientProbePass(m_VolumetricCloudsMaterial)
         {
             renderPassEvent = RenderPassEvent.AfterRenderingPrePasses
         };
-#endif // AMBIENT_PROBE
 
         m_PBSkyPostPass ??= new PBSkyPostPass()
         {
@@ -339,20 +318,14 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
             m_PBSkyPrePass.pbrSky = pbrSkyVolume;
             m_SkyViewLUTPass.pbrSky = pbrSkyVolume;
-#if PBRSKY_SCATTERING
             m_AtmosphericScatteringPass.pbrSky = pbrSkyVolume;
-#endif // PBRSKY_SCATTERING
 
             m_PBSkyPrePass.visualEnvironment = visualEnvVolume;
             m_SkyViewLUTPass.visualEnvironment = visualEnvVolume;
-#if PBRSKY_SCATTERING
             m_AtmosphericScatteringPass.visualEnvironment = visualEnvVolume;
-#endif // PBRSKY_SCATTERING
 
             m_PBSkyPrePass.fog = fogVolume;
-#if PBRSKY_SCATTERING
             m_AtmosphericScatteringPass.fog = fogVolume;
-#endif // PBRSKY_SCATTERING
 
             m_SkyViewLUTPass.halfResolutionLuts = halfResolutionLuts;
 
@@ -360,7 +333,11 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 CoreUtils.SetKeyword(m_PbrSkyMaterial, k_AtmosphericScatteringLowResolutionKeywordName, halfResolutionLuts);
             CoreUtils.SetKeyword(m_PbrSkyLUTMaterial, k_AtmosphericScatteringLowResolutionKeywordName, halfResolutionLuts);
 
+#if BUGFIX
+            bool hasFog = isPbrSky && pbrSkyVolume.atmosphericScattering.value && (fogVolume != null && fogVolume.IsActive());
+#else
             bool hasFog = isPbrSky && pbrSkyVolume.atmosphericScattering.value || (fogVolume != null && fogVolume.IsActive());
+#endif // BUGFIX
 
 #if UNITY_EDITOR
             bool isEditingPrefab = UnityEditor.SceneManagement.PrefabStageUtility.GetCurrentPrefabStage() != null;
@@ -378,15 +355,12 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 renderer.EnqueuePass(m_SkyViewLUTPass);
             }
 
-#if PBRSKY_SCATTERING
             if (hasFog && renderingData.cameraData.camera.cameraType != CameraType.Reflection)
                 renderer.EnqueuePass(m_AtmosphericScatteringPass);
-#endif // PBRSKY_SCATTERING
 
             renderer.EnqueuePass(m_PBSkyPostPass);
         }
 
-#if AMBIENT_PROBE
         if (visualEnvVolume.skyAmbientMode.value == VisualEnvironment.SkyAmbientMode.Dynamic && renderingData.cameraData.camera.cameraType != CameraType.Reflection && RenderSettings.skybox != null)
         {
             m_AmbientProbePass.visualEnvironment = visualEnvVolume;
@@ -399,7 +373,6 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         {
             Shader.DisableKeyword(k_DynamicAmbientProbeKeywordName);
         }
-#endif // AMBIENT_PROBE
 
         UpdateSkySettings(isPbrSky, visualEnvVolume);
     }
@@ -438,7 +411,6 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
     private void UpdateSkySettings(bool isPbrSky, VisualEnvironment visualEnvVolume)
     {
-#if AMBIENT_PROBE
         bool isCustomSky = visualEnvVolume.skyType.value == (int)VisualEnvironment.SkyType.Custom;
         bool isCustomSkyValid = visualEnvVolume.customSkyMaterial.value != null;
 
@@ -475,12 +447,6 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
         lastSkyType = visualEnvVolume.skyType.value;
         lastSkyAmbientMode = visualEnvVolume.skyAmbientMode.value;
-#else
-        // Update the sky material
-        RenderSettings.skybox = isPbrSky
-            ? m_PbrSkyMaterial
-            : m_FallbackSkyMaterial;
-#endif // AMBIENT_PROBE
     }
 
     /// <summary>
@@ -576,7 +542,6 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         private const string LOCAL_SKY = "LOCAL_SKY";
         private const string SKY_NOT_BAKING = "SKY_NOT_BAKING";
 
-#if AMBIENT_PROBE
         private SphericalHarmonicsL2 ambientProbe = new SphericalHarmonicsL2();
 
         private const int fibonacciSamplesCount = 64;
@@ -646,7 +611,6 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             new float3(0.103734f, 0.968254f, -0.227428f),
             new float3(-0.000000f, 1.000000f, 0.000000f)
         };
-#endif // AMBIENT_PROBE
 
         public PBSkyPrePass(Material material, CelestialBodyData celestialBodyData)
         {
@@ -658,10 +622,6 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 #if URP_COMPATIBILITY_MODE
         // Passing the final sun color to the Execute() method
         private float3 mainLightColor;
-
-#if CUSTOM
-        public float3 MainLightColor => mainLightColor;
-#endif // CUSTOM
 
         private Light GetMainLight(LightData lightData)
         {
@@ -712,13 +672,11 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             UpdateMaterialProperties(mainLight, camera, material);
             lutMaterial.CopyPropertiesFromMaterial(material);
 
-#if AMBIENT_PROBE
             if (mainLight != null && visualEnvironment.skyAmbientMode.value == VisualEnvironment.SkyAmbientMode.Dynamic)
             {
                 ambientProbe = UpdateAmbientProbe(ambientProbe, mainLight.transform.forward, mainLightColor);
                 RenderSettings.ambientProbe = ambientProbe;
             }
-#endif // AMBIENT_PROBE
         }
 
 #if UNITY_6000_0_OR_NEWER
@@ -817,13 +775,11 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 UpdateMaterialProperties(mainLight, camera, material);
                 lutMaterial.CopyPropertiesFromMaterial(material);
 
-#if AMBIENT_PROBE
                 if (mainLightFound && visualEnvironment.skyAmbientMode.value == VisualEnvironment.SkyAmbientMode.Dynamic)
                 {
                     ambientProbe = UpdateAmbientProbe(ambientProbe, forward, mainLightColor);
                     RenderSettings.ambientProbe = ambientProbe;
                 }
-#endif // AMBIENT_PROBE
 
                 passData.mainLightColor = mainLightColor;
                 passData.enableAtmosphericScattering = pbrSky.atmosphericScattering.value;
@@ -844,7 +800,6 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
         }
 
-#if AMBIENT_PROBE
         SphericalHarmonicsL2 UpdateAmbientProbe(SphericalHarmonicsL2 ambientProbe, float3 lightDirection, float3 lightColor)
         {
             ambientProbe.Clear();
@@ -991,7 +946,6 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 colours[index] = new Color(skyColor.x, skyColor.y, skyColor.z);
             }
         }
-#endif // AMBIENT_PROBE
 
 #if OPTIMISATION_UNITY
         private void UpdateMaterialProperties(Light mainLight, Vector3 cameraPos, Material material)
@@ -1484,6 +1438,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                     {
                         cmd.SetGlobalInteger(PBSky_TableCoord_Z, slice);
                         cmd.SetRenderTarget(lutHandles, airSingleScatteringHandle, 0, CubemapFace.Unknown, slice);
+
                         Blitter.BlitTexture(cmd, airSingleScatteringHandle, m_ScaleBias, lutMaterial, pass: 2);
                     }
 
@@ -2068,15 +2023,12 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 passData.cameraColorHandle = resourceData.activeColorTexture;
                 passData.enableFog = isFogEnabled;
 
-#if PBRSKY_DEPTH
                 ConfigureInput(ScriptableRenderPassInput.Depth);
-#endif // PBRSKY_DEPTH
 
                 // UnsafePasses don't setup the outputs using UseTextureFragment/UseTextureFragmentDepth, you should specify your writes with UseTexture instead
                 builder.UseTexture(resourceData.activeColorTexture, passData.cameraColorHandle.IsValid() ? AccessFlags.ReadWrite : AccessFlags.Read);
 
                 builder.AllowGlobalStateModification(true);
-                //builder.SetShadingRateFragmentSize(GetFragmentSize());
 
                 // Assign the ExecutePass function to the render pass delegate, which will be called by the render graph when executing the pass
                 builder.SetRenderFunc(static (PassData data, RasterGraphContext context) => ExecutePass(data, context));
@@ -2268,7 +2220,6 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         #endregion
     }
 
-#if AMBIENT_PROBE
     /// <summary>
     /// This pass updates the sky and environment reflection.
     /// </summary>
@@ -2896,10 +2847,10 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
                 passData.skyTextureMipCounts = visualEnvironment.skyAmbientMode.value == VisualEnvironment.SkyAmbientMode.Dynamic ?
                     hasVolumetricClouds ? skyColorHandle.rt.mipmapCount : probeColorHandle.rt.mipmapCount : 0;
-#endif // ZERO
-
+#else
                 passData.skyTextureMipCounts = visualEnvironment.skyAmbientMode.value == VisualEnvironment.SkyAmbientMode.Dynamic ?
                     probeColorHandle.rt.mipmapCount : 0;
+#endif // ZERO
 
                 passData.cloudsMaterial = cloudsMaterial;
 
@@ -2965,5 +2916,4 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
         #endregion
     }
-#endif // AMBIENT_PROBE
 }
