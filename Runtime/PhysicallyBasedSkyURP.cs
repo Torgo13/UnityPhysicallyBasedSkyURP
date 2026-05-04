@@ -215,9 +215,10 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             shadersValid = false;
         }
 
-        if (!shadersValid) return;
-#endif // DEBUG
+        if (!shadersValid)
+            return;
         isShaderMismatchLogPrinted = false;
+#endif // DEBUG
 
         // Cleanup settings when disabled
         if (!isActive)
@@ -777,7 +778,11 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
                 if (mainLightFound && visualEnvironment.skyAmbientMode.value == VisualEnvironment.SkyAmbientMode.Dynamic)
                 {
+#if OPTIMISATION
+                    UpdateAmbientProbe(ref ambientProbe, forward, mainLightColor);
+#else
                     ambientProbe = UpdateAmbientProbe(ambientProbe, forward, mainLightColor);
+#endif // OPTIMISATION
                     RenderSettings.ambientProbe = ambientProbe;
                 }
 
@@ -800,11 +805,11 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
         }
 
-        SphericalHarmonicsL2 UpdateAmbientProbe(SphericalHarmonicsL2 ambientProbe, float3 lightDirection, float3 lightColor)
+#if OPTIMISATION
+        void UpdateAmbientProbe(ref SphericalHarmonicsL2 ambientProbe, float3 lightDirection, float3 lightColor)
         {
             ambientProbe.Clear();
 
-#if OPTIMISATION
             const Unity.Collections.Allocator allocator = Unity.Collections.Allocator.TempJob;
             const Unity.Collections.NativeArrayOptions options = Unity.Collections.NativeArrayOptions.UninitializedMemory;
 
@@ -853,16 +858,21 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
             Unity.Jobs.IJobForExtensions.RunByRef(ref renderSkyJob, fibonacciSamplesCount);
 
-            const float weightOverPdf = (float)(PI_DBL * 4.0 / fibonacciSamplesCount);
+            const float weightOverPdf = (float)(PI_DBL * (fibonacciSamplesCount / 4));
 
-            var fibonacciSamplesSpan = System.Runtime.InteropServices.MemoryMarshal.Cast<float3, Vector3>((ReadOnlySpan<float3>)fibonacciSamples);
             for (int i = 0; i < fibonacciSamplesCount; i++)
             {
-                ambientProbe.AddDirectionalLight(fibonacciSamplesSpan[i], colours[i], weightOverPdf);
+                ambientProbe.AddDirectionalLight(fibonacciSamplesNative[i], colours[i], weightOverPdf);
             }
 
             colours.Dispose();
+            fibonacciSamplesNative.Dispose();
+        }
 #else
+        SphericalHarmonicsL2 UpdateAmbientProbe(SphericalHarmonicsL2 ambientProbe, float3 lightDirection, float3 lightColor)
+        {
+            ambientProbe.Clear();
+
             float weightOverPdf = 4.0f * PI * rcp(fibonacciSamplesCount);
             for (int i = 0; i < fibonacciSamplesCount; i++)
             {
@@ -873,13 +883,13 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 Color color = new Color(skyColor.x, skyColor.y, skyColor.z);
                 ambientProbe.AddDirectionalLight(V, color, weightOverPdf);
             }
-#endif // OPTIMISATION
 
             return ambientProbe;
         }
+#endif // OPTIMISATION
 
 #if ENABLE_BURST_1_0_0_OR_NEWER
-        [Unity.Burst.BurstCompile(FloatMode = Unity.Burst.FloatMode.Fast)]
+[Unity.Burst.BurstCompile(FloatMode = Unity.Burst.FloatMode.Fast)]
 #endif // ENABLE_BURST_1_0_0_OR_NEWER
         struct RenderSkyJob : Unity.Jobs.IJobFor
         {
@@ -888,7 +898,6 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             [Unity.Collections.NativeMatchesParallelForLength]
             public Unity.Collections.NativeArray<Color> colours;
 
-            [Unity.Collections.DeallocateOnJobCompletion]
             [Unity.Collections.ReadOnly]
             [Unity.Collections.NativeFixedLength(fibonacciSamplesCount)]
             [Unity.Collections.NativeMatchesParallelForLength]
