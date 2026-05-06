@@ -2734,7 +2734,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             desc.dimension = TextureDimension.Tex2DArray;
             desc.volumeDepth = 6;
             RenderingUtils.ReAllocateHandleIfNeeded(ref skyColorHandle, desc, FilterMode.Bilinear, TextureWrapMode.Repeat, name: _SkyTexture);
-            TextureHandle skyColorTextureHandle = renderGraph.ImportTexture(skyColorHandle, new ImportResourceParams { clearOnFirstUse = false, discardOnLastUse = true, });
+            TextureHandle skyColorTextureHandle = renderGraph.ImportTexture(skyColorHandle);
 
             using (var builder = renderGraph.AddRasterRenderPass<PassData>(profilerTag, out var passData, m_ProfilingSampler))
             {
@@ -2749,7 +2749,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             desc.dimension = TextureDimension.Cube;
             desc.volumeDepth = 1;
             RenderingUtils.ReAllocateHandleIfNeeded(ref probeColorHandle, desc, FilterMode.Trilinear, TextureWrapMode.Repeat, name: _GlossyEnvironmentCubeMap);
-            TextureHandle probeColorTextureHandle = renderGraph.ImportTexture(probeColorHandle, new ImportResourceParams { clearOnFirstUse = false, discardOnLastUse = false, });
+            TextureHandle probeColorTextureHandle = renderGraph.ImportTexture(probeColorHandle);
 
             // Sort the directions so faces with the same ShadingRateFragmentSize are rendered together
             cameraData.camera.transform.GetPositionAndRotation(out var cameraPositionWS, out var rot);
