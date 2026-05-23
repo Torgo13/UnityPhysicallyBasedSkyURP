@@ -443,13 +443,17 @@ float3 ComputeAtmosphericOpticalDepth(float3 O, half3 V, float distAlongRay)
     float r0 = r, cosChi0 = cosChi;
 
     float r1 = 0, cosChi1 = 0;
+#if 0
     half3 N1 = 0;
+#endif // 0
 
     {
         float3 P1 = O + tFrag * -V;
 
         r1 = length(P1);
+#if 0
         N1 = P1 * rcp(r1);
+#endif // 0
         cosChi1 = dot(P1, -V) * rcp(r1);
 
         // Potential swap.

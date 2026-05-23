@@ -1811,11 +1811,11 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 passData.multipleScatteringHandle = multipleScatteringTextureHandle;
                 passData.groundIrradianceHandle = groundIrradianceTextureHandle;
 
-                builder.UseTexture(passData.skyViewLUTHandle);
-                builder.UseTexture(passData.airSingleScatteringHandle);
-                builder.UseTexture(passData.aerosolSingleScatteringHandle);
-                builder.UseTexture(passData.multipleScatteringHandle);
-                builder.UseTexture(passData.groundIrradianceHandle);
+                builder.UseTexture(passData.skyViewLUTHandle, AccessFlags.ReadWrite);
+                builder.UseTexture(passData.airSingleScatteringHandle, AccessFlags.ReadWrite);
+                builder.UseTexture(passData.aerosolSingleScatteringHandle, AccessFlags.ReadWrite);
+                builder.UseTexture(passData.multipleScatteringHandle, AccessFlags.ReadWrite);
+                builder.UseTexture(passData.groundIrradianceHandle, AccessFlags.ReadWrite);
 
                 builder.AllowGlobalStateModification(true);
 
