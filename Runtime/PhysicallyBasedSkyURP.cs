@@ -1743,7 +1743,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                     passData.skyViewLUTHandle = skyViewLUTTextureHandle;
                     passData.lutMaterial = lutMaterial;
 
-                    builder.SetRenderAttachment(passData.skyViewLUTHandle, index: 0, passData.cameraSpaceSky ? AccessFlags.WriteAll : AccessFlags.None);
+                    builder.SetRenderAttachment(passData.skyViewLUTHandle, index: 0, AccessFlags.WriteAll);
 
                     builder.SetRenderFunc(static (PassData data, RasterGraphContext context) => ExecuteSkyViewPass(data, context));
                 }
@@ -2733,8 +2733,12 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             desc.autoGenerateMips = false;
             desc.dimension = TextureDimension.Tex2DArray;
             desc.volumeDepth = 6;
+#if UNITY_IOS
             RenderingUtils.ReAllocateHandleIfNeeded(ref skyColorHandle, desc, FilterMode.Bilinear, TextureWrapMode.Repeat, name: _SkyTexture);
             TextureHandle skyColorTextureHandle = renderGraph.ImportTexture(skyColorHandle);
+#else
+            TextureHandle skyColorTextureHandle = renderGraph.CreateTexture(new TextureDesc(desc) { name = _SkyTexture, wrapMode = TextureWrapMode.Repeat, clearBuffer = false, });
+#endif // UNITY_IOS
 
             using (var builder = renderGraph.AddRasterRenderPass<PassData>(profilerTag, out var passData, m_ProfilingSampler))
             {

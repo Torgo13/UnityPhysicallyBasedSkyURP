@@ -74,7 +74,10 @@ class VisualEnvironmentEditor : VolumeComponentEditor
         base.OnEnable();
         var o = new PropertyFetcher<VisualEnvironment>(serializedObject);
 
+#if UNITY_6000_3_OR_NEWER
+#else
         RenderDataListFieldInfo = typeof(UniversalRenderPipelineAsset).GetField(k_RendererDataList, BindingFlags.Instance | BindingFlags.NonPublic);
+#endif // UNITY_6000_3_OR_NEWER
 
         m_SkyType = Unpack(o.Find(x => x.skyType));
         //m_CloudType = Unpack(o.Find(x => x.cloudType));
@@ -290,6 +293,8 @@ class VisualEnvironmentEditor : VolumeComponentEditor
     /// From "https://forum.unity.com/threads/enable-or-disable-render-features-at-runtime.932571/"
     /// </summary>
     #region Reflection
+#if UNITY_6000_3_OR_NEWER
+#else
     private static FieldInfo RenderDataListFieldInfo;
 
     private static ScriptableRendererData[] GetRendererDataList(UniversalRenderPipelineAsset asset = null)
@@ -314,10 +319,16 @@ class VisualEnvironmentEditor : VolumeComponentEditor
             return null;
         }
     }
+#endif // UNITY_6000_3_OR_NEWER
 
     private static ScriptableRendererFeature GetRendererFeature(string typeName)
     {
+#if UNITY_6000_3_OR_NEWER
+        var renderDataList = ((UniversalRenderPipelineAsset)GraphicsSettings.currentRenderPipeline).rendererDataList;
+#else
         var renderDataList = GetRendererDataList();
+#endif // UNITY_6000_3_OR_NEWER
+
         if (renderDataList == null || renderDataList.Length == 0)
             return null;
 
