@@ -2460,6 +2460,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         private class PassData
         {
             internal Material cloudsMaterial;
+            internal Material skyMaterial;
 
             internal TextureHandle probeColorHandle;
             internal TextureHandle skyColorHandle;
@@ -2508,7 +2509,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
             //cmd.SetViewMatrix(data.skyViewMatrices[data.i]);
             context.cmd.SetGlobalMatrix(unity_MatrixInvVP, data.invSkyViewMatrices[data.i]);
-            Blitter.BlitTexture(cmd, m_ScaleBias, RenderSettings.skybox, pass: 1);
+            Blitter.BlitTexture(cmd, m_ScaleBias, data.skyMaterial, pass: 1);
             Blitter.BlitTexture(cmd, m_ScaleBias, data.cloudsMaterial, pass: 8);
             Graphics.CopyTexture(data.skyColorHandle, data.i, 0, data.probeColorHandle, data.i, 0);
 
@@ -2560,8 +2561,6 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             Matrix4x4 skyMatrixP = GL.GetGPUProjectionMatrix(data.skyProjectionMatrix, true);
 #endif // ZERO
 
-            Material skybox = RenderSettings.skybox;
-
             for (int i = 0; i < 6; i++)
             {
 #if ZERO
@@ -2600,7 +2599,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 context.cmd.SetGlobalMatrix(unity_MatrixInvVP, skyMatrixVP.inverse);
 #endif // OPTIMISATION
 
-                Blitter.BlitTexture(cmd, m_ScaleBias, skybox, pass: 1);
+                Blitter.BlitTexture(cmd, m_ScaleBias, data.skyMaterial, pass: 1);
 
                 //CoreUtils.SetRenderTarget(cmd, data.probeColorHandle, ClearFlag.None, 0, (CubemapFace)i);
                 Blitter.BlitTexture(cmd, m_ScaleBias, data.cloudsMaterial, pass: 8);
@@ -2634,7 +2633,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
             ((RTHandle)data.probeColorHandle).rt.GenerateMips();
 
-            context.cmd.SetGlobalTexture(glossyEnvironmentCubeMap, data.probeColorHandle);
+            //context.cmd.SetGlobalTexture(glossyEnvironmentCubeMap, data.probeColorHandle);
             RenderSettings.defaultReflectionMode = data.isDynamicAmbientMode ? DefaultReflectionMode.Custom : RenderSettings.defaultReflectionMode;
             RenderSettings.customReflectionTexture = data.isDynamicAmbientMode ? data.probeColorHandle : null;
             context.cmd.SetGlobalVector(worldSpaceCameraPos, data.cameraPositionWS);
@@ -2698,7 +2697,9 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
             float2 cameraResolution = float2(desc.width, desc.height);
 
-            reflectionResolution = Mathf.ClosestPowerOfTwo((int)(256 * ScalableBufferManager.widthScaleFactor));
+            reflectionResolution = Mathf.ClosestPowerOfTwo((int)(512 * ScalableBufferManager.widthScaleFactor));
+
+            var skyMaterial = RenderSettings.skybox;
 
             desc.msaaSamples = 1;
             desc.useMipMap = true;
@@ -2726,6 +2727,11 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
             nativeInvSkyViewMatrices.CopyTo(invSkyViewMatrices);
             nativeInvSkyViewMatrices.Dispose();
+
+            if (probeColorHandle != null && cameraData.camera.TryGetComponent<Skybox>(out var skybox))
+            {
+                skybox.material.SetTexture("_Tex", probeColorHandle.rt);
+            }
 #endif // OPTIMISATION
 
 #if !UNITY_IOS
@@ -2790,15 +2796,15 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
             for (int i = 0; i < 6; i++)
             {
-                int j = i;
                 using (var builder = renderGraph.AddRasterRenderPass<PassData>(profilerTag, out var passData, m_ProfilingSampler))
                 {
-                    passData.i = order[j];
+                    passData.i = order[i];
 
                     passData.skyColorHandle = skyColorTextureHandle;
                     passData.probeColorHandle = probeColorTextureHandle;
 
                     // Fill up the passData with the data needed by the pass
+                    passData.skyMaterial = skyMaterial;
                     passData.cloudsMaterial = cloudsMaterial;
                     passData.isStereoEnabled = cameraData.camera.stereoEnabled;
 
@@ -2806,14 +2812,12 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                     passData.invSkyViewMatrices = invSkyViewMatrices;
                     passData.projectionMatrix = projectionMatrix;
 
-                    //cameraData.camera.SetStereoViewMatrix(default, skyViewMatrices[passData.i]);
-
                     builder.SetRenderAttachment(passData.skyColorHandle, index: 0, AccessFlags.Write, mipLevel: 0, depthSlice: passData.i);
 
                     // Shader keyword changes are considered as global state modifications
                     builder.AllowGlobalStateModification(true);
 
-                    builder.SetShadingRateFragmentSize(j < start ? ShadingRateFragmentSize.FragmentSize1x1 : ShadingRateFragmentSize.FragmentSize4x4);
+                    builder.SetShadingRateFragmentSize(i < start ? ShadingRateFragmentSize.FragmentSize1x1 : ShadingRateFragmentSize.FragmentSize4x4);
 
                     builder.SetRenderFunc(static (PassData data, RasterGraphContext context) => ExecuteSecondPass(data, context));
                 }
@@ -2833,9 +2837,6 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 passData.isDynamicAmbientMode = visualEnvironment.skyAmbientMode.value == VisualEnvironment.SkyAmbientMode.Dynamic;
                 passData.isStereoEnabled = cameraData.camera.stereoEnabled;
 
-                passData.skyTextureMipCounts = skyTextureMipCounts;
-
-                //cameraData.camera.SetStereoViewMatrix(default, passData.worldToCameraMatrix);
                 //builder.SetGlobalTextureAfterPass(passData.skyColorHandle, skyTexture);
                 builder.SetGlobalTextureAfterPass(passData.probeColorHandle, glossyEnvironmentCubeMap);
 
@@ -2886,6 +2887,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 passData.rendererListHandles = rendererListHandles;
                 passData.skyViewMatrices = skyViewMatrices;
                 passData.skyProjectionMatrix = skyProjectionMatrix;
+                passData.skyMaterial = skyMaterial;
                 passData.cloudsMaterial = cloudsMaterial;
                 passData.cameraPositionWS = cameraData.camera.transform.position;
                 passData.cameraScreenSize = new Vector4(cameraResolution.x, cameraResolution.y, rcp(cameraResolution.x), rcp(cameraResolution.y));
