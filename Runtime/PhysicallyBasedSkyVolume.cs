@@ -15,6 +15,9 @@ using UnityEngine.Rendering.Universal;
 [Serializable, VolumeComponentMenuForRenderPipeline("Sky/Physically Based Sky (URP)", typeof(UniversalRenderPipeline))]
 #endif
 [HelpURL("https://github.com/jiaozi158/UnityPhysicallyBasedSkyURP/tree/main")]
+#if ENABLE_BURST_1_0_0_OR_NEWER
+[Unity.Burst.BurstCompile]
+#endif // ENABLE_BURST_1_0_0_OR_NEWER
 public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
 {
     public bool IsActive()
@@ -760,31 +763,12 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
         float R, float r, float cosTheta, bool alwaysAboveHorizon = false)
     {
 #if ENABLE_BURST_1_0_0_OR_NEWER
-        const Unity.Collections.Allocator allocator = Unity.Collections.Allocator.TempJob;
-        const Unity.Collections.NativeArrayOptions options = Unity.Collections.NativeArrayOptions.UninitializedMemory;
+        ComputeAtmosphericOpticalDepth(out float3 optDepth, new float2(airScaleHeight, aerosolScaleHeight), airExtinctionCoefficient,
+            aerosolExtinctionCoefficient, ozoneLayerMinimumAltitude,
+            ozoneLayerWidth, ozoneExtinctionCoefficient,
+            R, r, cosTheta, alwaysAboveHorizon);
 
-        var atmosphericOpticalDepth = new Unity.Collections.NativeArray<float3>(1, allocator, options);
-
-        var computeAtmosphericOpticalDepthJob = new ComputeAtmosphericOpticalDepthJob
-        {
-            H = new float2(airScaleHeight, aerosolScaleHeight),
-            R = R,
-            r = r,
-            airExtinctionCoefficient = airExtinctionCoefficient,
-            aerosolExtinctionCoefficient = aerosolExtinctionCoefficient,
-            ozoneExtinctionCoefficient = ozoneExtinctionCoefficient,
-            ozoneMinimumAltitude = ozoneLayerMinimumAltitude,
-            ozoneLayerWidth = ozoneLayerWidth,
-            cosTheta = cosTheta,
-            alwaysAboveHorizon = alwaysAboveHorizon,
-            atmosphericOpticalDepth = atmosphericOpticalDepth,
-        };
-
-        Unity.Jobs.IJobExtensions.RunByRef(ref computeAtmosphericOpticalDepthJob);
-
-        float3 output = atmosphericOpticalDepth[0];
-        atmosphericOpticalDepth.Dispose();
-        return output;
+        return optDepth;
 #else
         Vector2 H = new Vector2(airScaleHeight, aerosolScaleHeight);
         Vector2 rcpH = new Vector2(Rcp(H.x), Rcp(H.y));
@@ -838,6 +822,9 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
 #endif // ENABLE_BURST_1_0_0_OR_NEWER
     }
 
+#if ENABLE_BURST_1_0_0_OR_NEWER
+    [Unity.Burst.BurstCompile(FloatMode = Unity.Burst.FloatMode.Fast)]
+#endif // ENABLE_BURST_1_0_0_OR_NEWER
     public static void ComputeAtmosphericOpticalDepth(out float3 atmosphericOpticalDepth,
         in float2 H, in Vector3 airExtinctionCoefficient,
         float aerosolExtinctionCoefficient, float ozoneMinimumAltitude,
@@ -856,7 +843,7 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
         ch.x = ChapmanUpperApprox(z.x, abs(cosTheta)) * exp(Z.x - z.x); // Rescaling adds 'exp'
         ch.y = ChapmanUpperApprox(z.y, abs(cosTheta)) * exp(Z.y - z.y); // Rescaling adds 'exp'
 
-        Unity.Burst.CompilerServices.Hint.Assume(alwaysAboveHorizon);
+        //Unity.Burst.CompilerServices.Hint.Assume(alwaysAboveHorizon);
 
         if ((!alwaysAboveHorizon) && (cosTheta < cosHoriz)) // Below horizon, intersect sphere
         {
@@ -890,35 +877,6 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
             + optDepth.y * aerosolExtinctionCoefficient
             + ozoneOD * (float3)ozoneExtinctionCoefficient;
     }
-
-#if ENABLE_BURST_1_0_0_OR_NEWER
-    [Unity.Burst.BurstCompile(FloatMode = Unity.Burst.FloatMode.Fast)]
-    public struct ComputeAtmosphericOpticalDepthJob : Unity.Jobs.IJob
-    {
-        [Unity.Collections.WriteOnly] public Unity.Collections.NativeArray<float3> atmosphericOpticalDepth;
-        
-        [Unity.Collections.ReadOnly] public float2 H;
-        [Unity.Collections.ReadOnly] public float R;
-        [Unity.Collections.ReadOnly] public float r;
-        [Unity.Collections.ReadOnly] public float3 airExtinctionCoefficient;
-        [Unity.Collections.ReadOnly] public float aerosolExtinctionCoefficient;
-        [Unity.Collections.ReadOnly] public float3 ozoneExtinctionCoefficient;
-        [Unity.Collections.ReadOnly] public float ozoneMinimumAltitude;
-        [Unity.Collections.ReadOnly] public float ozoneLayerWidth;
-        [Unity.Collections.ReadOnly] public float cosTheta;
-        [Unity.Collections.ReadOnly] public bool alwaysAboveHorizon;
-
-        public void Execute()
-        {
-            ComputeAtmosphericOpticalDepth(out float3 optDepth, H, airExtinctionCoefficient,
-                aerosolExtinctionCoefficient, ozoneMinimumAltitude,
-                ozoneLayerWidth, ozoneExtinctionCoefficient,
-                R, r, cosTheta, alwaysAboveHorizon);
-
-            atmosphericOpticalDepth[0] = optDepth;
-        }
-    }
-#endif // ENABLE_BURST_1_0_0_OR_NEWER
 
 #if UNUSED
     // Computes transmittance along the light path segment.

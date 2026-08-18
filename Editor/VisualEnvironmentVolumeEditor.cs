@@ -294,6 +294,8 @@ class VisualEnvironmentEditor : VolumeComponentEditor
     /// </summary>
     #region Reflection
 #if UNITY_6000_3_OR_NEWER
+    private static ReadOnlySpan<ScriptableRendererData> GetRendererDataList()
+        => GraphicsSettings.currentRenderPipeline is UniversalRenderPipelineAsset urpAsset ? urpAsset.rendererDataList : default;
 #else
     private static FieldInfo RenderDataListFieldInfo;
 
@@ -323,12 +325,7 @@ class VisualEnvironmentEditor : VolumeComponentEditor
 
     private static ScriptableRendererFeature GetRendererFeature(string typeName)
     {
-#if UNITY_6000_3_OR_NEWER
-        var renderDataList = ((UniversalRenderPipelineAsset)GraphicsSettings.currentRenderPipeline).rendererDataList;
-#else
         var renderDataList = GetRendererDataList();
-#endif // UNITY_6000_3_OR_NEWER
-
         if (renderDataList == null || renderDataList.Length == 0)
             return null;
 
@@ -336,6 +333,12 @@ class VisualEnvironmentEditor : VolumeComponentEditor
         {
             foreach (var rendererFeature in renderData.rendererFeatures)
             {
+#if UNITY_6000_3_OR_NEWER
+                if (rendererFeature as PhysicallyBasedSkyURP != null)
+                {
+                    return rendererFeature;
+                }
+#else
                 if (rendererFeature == null)
                     continue;
 
@@ -343,6 +346,7 @@ class VisualEnvironmentEditor : VolumeComponentEditor
                 {
                     return rendererFeature;
                 }
+#endif // UNITY_6000_3_OR_NEWER
             }
         }
 
