@@ -453,6 +453,9 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
     /// <summary>
     /// This pass updates the global shader properties of physically based sky.
     /// </summary>
+#if ENABLE_BURST_1_0_0_OR_NEWER
+    [Unity.Burst.BurstCompile]
+#endif // ENABLE_BURST_1_0_0_OR_NEWER
     private class PBSkyPrePass : ScriptableRenderPass
     {
         private const string profilerTag = "Setup Physically Based Sky";
@@ -779,7 +782,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 if (mainLightFound && visualEnvironment.skyAmbientMode.value == VisualEnvironment.SkyAmbientMode.Dynamic)
                 {
 #if OPTIMISATION
-                    UpdateAmbientProbe(ref ambientProbe, forward, mainLightColor);
+                    UpdateAmbientProbe(ref ambientProbe, forward, mainLightColor, pbrSky);
 #else
                     ambientProbe = UpdateAmbientProbe(ambientProbe, forward, mainLightColor);
 #endif // OPTIMISATION
@@ -806,36 +809,27 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         }
 
 #if OPTIMISATION
-        void UpdateAmbientProbe(ref SphericalHarmonicsL2 ambientProbe, float3 lightDirection, float3 lightColor)
+        static void UpdateAmbientProbe(ref SphericalHarmonicsL2 ambientProbe, in float3 lightDirection, in float3 lightColor,
+            in PhysicallyBasedSky.SkyParams skyParams)
+        {
+            var fibonacciSamplesNative = new Unity.Collections.NativeArray<float3>(fibonacciSamples, Unity.Collections.Allocator.TempJob);
+            UpdateAmbientProbe(ref ambientProbe, lightDirection, lightColor, skyParams, fibonacciSamplesNative.AsReadOnly());
+            fibonacciSamplesNative.Dispose();
+        }
+
+#if ENABLE_BURST_1_0_0_OR_NEWER
+        [Unity.Burst.BurstCompile(FloatPrecision = Unity.Burst.FloatPrecision.Low, FloatMode = Unity.Burst.FloatMode.Fast)]
+#endif // ENABLE_BURST_1_0_0_OR_NEWER
+        static void UpdateAmbientProbe(ref SphericalHarmonicsL2 ambientProbe, in float3 lightDirection, in float3 lightColor,
+            in PhysicallyBasedSky.SkyParams skyParams, in Unity.Collections.NativeArray<float3>.ReadOnly fibonacciSamples)
         {
             ambientProbe.Clear();
-
-            const Unity.Collections.Allocator allocator = Unity.Collections.Allocator.TempJob;
-            const Unity.Collections.NativeArrayOptions options = Unity.Collections.NativeArrayOptions.UninitializedMemory;
-
-            var colours = new Unity.Collections.NativeArray<Color>(fibonacciSamplesCount, allocator, options);
-            var fibonacciSamplesNative = new Unity.Collections.NativeArray<float3>(fibonacciSamples, allocator);
-
-            var renderSkyJob = new RenderSkyJob
-            {
-                colours = colours,
-                fibonacciSamples = fibonacciSamplesNative.AsReadOnly(),
-                lightDirection = lightDirection,
-                lightColor = lightColor,
-                skyParams = pbrSky,
-            };
-
-            Unity.Jobs.IJobForExtensions.RunByRef(ref renderSkyJob, fibonacciSamplesCount);
-
             const float weightOverPdf = (float)(PI_DBL * (fibonacciSamplesCount / 4));
-
-            for (int i = 0; i < fibonacciSamplesCount; i++)
+            foreach (float3 V in fibonacciSamples)
             {
-                ambientProbe.AddDirectionalLight(fibonacciSamplesNative[i], colours[i], weightOverPdf);
+                PhysicallyBasedSky.RenderSky(-lightDirection, lightColor, V, out float3 skyColor, skyParams);
+                ambientProbe.AddDirectionalLight(V, new Color(skyColor.x, skyColor.y, skyColor.z), weightOverPdf);
             }
-
-            colours.Dispose();
-            fibonacciSamplesNative.Dispose();
         }
 #else
         SphericalHarmonicsL2 UpdateAmbientProbe(SphericalHarmonicsL2 ambientProbe, float3 lightDirection, float3 lightColor)
@@ -856,34 +850,6 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             return ambientProbe;
         }
 #endif // OPTIMISATION
-
-#if ENABLE_BURST_1_0_0_OR_NEWER
-        [Unity.Burst.BurstCompile(FloatMode = Unity.Burst.FloatMode.Fast)]
-#endif // ENABLE_BURST_1_0_0_OR_NEWER
-        struct RenderSkyJob : Unity.Jobs.IJobFor
-        {
-            [Unity.Collections.WriteOnly]
-            [Unity.Collections.NativeFixedLength(fibonacciSamplesCount)]
-            [Unity.Collections.NativeMatchesParallelForLength]
-            public Unity.Collections.NativeArray<Color> colours;
-
-            [Unity.Collections.ReadOnly]
-            [Unity.Collections.NativeFixedLength(fibonacciSamplesCount)]
-            [Unity.Collections.NativeMatchesParallelForLength]
-            public Unity.Collections.NativeArray<float3>.ReadOnly fibonacciSamples;
-
-            public PhysicallyBasedSky.SkyParams skyParams;
-
-            public float3 lightDirection;
-            public float3 lightColor;
-
-            public void Execute(int index)
-            {
-                float3 V = fibonacciSamples[index];
-                PhysicallyBasedSky.RenderSky(-lightDirection, lightColor, V, out float3 skyColor, skyParams);
-                colours[index] = new Color(skyColor.x, skyColor.y, skyColor.z);
-            }
-        }
 
 #if OPTIMISATION_UNITY
         private void UpdateMaterialProperties(Light mainLight, Vector3 cameraPos, Material material)
