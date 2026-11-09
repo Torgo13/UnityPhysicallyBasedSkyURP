@@ -745,7 +745,6 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
         return ozoneOD * 0.6f;
     }
 
-
     public static float3 ComputeAtmosphericOpticalDepth(PhysicallyBasedSky pbrSky,
         float R, float r, float cosTheta, bool alwaysAboveHorizon = false)
     {
@@ -753,6 +752,16 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
             pbrSky.GetAerosolScaleHeight(), pbrSky.GetAirExtinctionCoefficient(),
             pbrSky.GetAerosolExtinctionCoefficient(), pbrSky.GetOzoneLayerMinimumAltitude(),
             pbrSky.GetOzoneLayerWidth(), pbrSky.GetOzoneExtinctionCoefficient(),
+            R, r, cosTheta, alwaysAboveHorizon);
+    }
+
+    public static float3 ComputeAtmosphericOpticalDepth(in SkyParams pbrSky,
+        float R, float r, float cosTheta, bool alwaysAboveHorizon = false)
+    {
+        return ComputeAtmosphericOpticalDepth(pbrSky.airScaleHeight,
+            pbrSky.aerosolScaleHeight, pbrSky.airExtinctionCoefficient,
+            pbrSky.aerosolExtinctionCoefficient, pbrSky.ozoneLayerMinimumAltitude,
+            pbrSky.ozoneLayerWidth, pbrSky.ozoneExtinctionCoefficient,
             R, r, cosTheta, alwaysAboveHorizon);
     }
 
@@ -918,11 +927,10 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
         return GetAirScatteringCoefficient() * exp(-height * rcp(GetAirScaleHeight()));
     }
 #else
-    static float3 AirScatter(float height, PhysicallyBasedSkyModel type, float airMaximumAltitude,
-        float airDensityR, float airDensityG, float airDensityB, Color airTint)
+    static float3 AirScatter(float height, in SkyParams s)
     {
-        return GetAirScatteringCoefficient(type, airMaximumAltitude,
-            airDensityR, airDensityG, airDensityB, airTint) * exp(-height * rcp(GetAirScaleHeight(type, airMaximumAltitude)));
+        return GetAirScatteringCoefficient(s.type, s.airMaximumAltitude,
+            s.airDensityR, s.airDensityG, s.airDensityB, s.airTint) * exp(-height * rcp(GetAirScaleHeight(s.type, s.airMaximumAltitude)));
     }
 #endif // UNUSED
 
@@ -1219,19 +1227,17 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
         return max(extinction, FLT_MIN_NORMAL);
     }
 #else
-    static float3 AtmosphereExtinction(float height, float aerosolScaleHeight, float airScaleHeight,
-        float ozoneLayerWidth, float ozoneLayerMinimumAltitude, Vector3 ozoneExtinctionCoefficient,
-        float aerosolExtinctionCoefficient, Vector3 airExtinctionCoefficient)
+    static float3 AtmosphereExtinction(float height, in SkyParams s)
     {
-        float densityMie = exp(-height * rcp(aerosolScaleHeight));
-        float densityRayleigh = exp(-height * rcp(airScaleHeight));
+        float densityMie = exp(-height * rcp(s.aerosolScaleHeight));
+        float densityRayleigh = exp(-height * rcp(s.airScaleHeight));
 
-        float2 ozoneScaleOffset = float2(2.0f / ozoneLayerWidth, -2.0f * ozoneLayerMinimumAltitude / ozoneLayerWidth - 1.0f);
+        float2 ozoneScaleOffset = float2(2.0f / s.ozoneLayerWidth, -2.0f * s.ozoneLayerMinimumAltitude / s.ozoneLayerWidth - 1.0f);
         float densityOzone = OzoneDensity(height, ozoneScaleOffset);
 
-        float3 extinction = densityMie * aerosolExtinctionCoefficient
-                          + densityRayleigh * float3(airExtinctionCoefficient)
-                          + densityOzone * float3(ozoneExtinctionCoefficient);
+        float3 extinction = densityMie * s.aerosolExtinctionCoefficient
+                          + densityRayleigh * float3(s.airExtinctionCoefficient)
+                          + densityOzone * float3(s.ozoneExtinctionCoefficient);
 
         return max(extinction, FLT_MIN_NORMAL);
     }
@@ -1293,10 +1299,7 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
         }
     }
 
-    public static float3 EvaluateSunColorAttenuation(float alphaSaturation, float alphaMultiplier,
-        float airScaleHeight, float aerosolScaleHeight, Vector3 airExtinctionCoefficient,
-        float aerosolExtinctionCoefficient, float ozoneLayerMinimumAltitude,
-        float ozoneLayerWidth, Vector3 ozoneExtinctionCoefficient,
+    public static float3 EvaluateSunColorAttenuation(in SkyParams pbrSky,
         float3 positionPS, float3 sunDirection, bool estimatePenumbra = false)
     {
         float r = length(positionPS);
@@ -1309,15 +1312,10 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
 
         if (cosTheta >= cosHoriz) // Above horizon
         {
-            float2 H = new float2(airScaleHeight, aerosolScaleHeight);
-            ComputeAtmosphericOpticalDepth(out float3 oDepth,
-                H, airExtinctionCoefficient,
-                aerosolExtinctionCoefficient, ozoneLayerMinimumAltitude,
-                ozoneLayerWidth, ozoneExtinctionCoefficient,
-                R, r, cosTheta, alwaysAboveHorizon: true);
+            float3 oDepth = ComputeAtmosphericOpticalDepth(pbrSky, R, r, cosTheta, alwaysAboveHorizon: true);
             float3 opacity = 1 - TransmittanceFromOpticalDepth(oDepth);
             float penumbra = saturate((cosTheta - cosHoriz) / 0.0019f); // very scientific value
-            float3 attenuation = 1 - (Desaturate(opacity, alphaSaturation) * alphaMultiplier);
+            float3 attenuation = 1 - (Desaturate(opacity, pbrSky.alphaSaturation) * pbrSky.alphaMultiplier);
             return estimatePenumbra ? attenuation * penumbra : attenuation;
         }
         else
@@ -1381,13 +1379,7 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
 #else
     static void EvaluateAtmosphericColor(float3 L, float3 lightColor, float3 O, float3 V, float tExit,
         out float3 skyColor, out float3 skyTransmittance,
-        float alphaSaturation, float alphaMultiplier,
-        float aerosolScaleHeight, float airScaleHeight,
-        float ozoneLayerWidth, float ozoneLayerMinimumAltitude, Vector3 ozoneExtinctionCoefficient,
-        float aerosolExtinctionCoefficient, Vector3 airExtinctionCoefficient,
-        PhysicallyBasedSkyModel type, float airMaximumAltitude,
-        float airDensityR, float airDensityG, float airDensityB, Color airTint,
-        float aerosolMaximumAltitude, float aerosolDensity, Color aerosolTint, float aerosolAnisotropy)
+        in SkyParams skyParams)
     {
         skyColor = 0.0f;
         skyTransmittance = 1.0f;
@@ -1403,9 +1395,7 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
             float3 N = P * rcp(r);
             float height = r - PlanetaryRadius();
 
-            float3 sigmaE = AtmosphereExtinction(height, aerosolScaleHeight, airScaleHeight,
-                ozoneLayerWidth, ozoneLayerMinimumAltitude, ozoneExtinctionCoefficient,
-                aerosolExtinctionCoefficient, airExtinctionCoefficient);
+            float3 sigmaE = AtmosphereExtinction(height, skyParams);
             //float3 scatteringMS = AirScatter(height) + AerosolScatter(height);
             float3 transmittanceOverSegment = TransmittanceFromOpticalDepth(sigmaE * dt);
 
@@ -1428,16 +1418,12 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
                 //CelestialBodyData light = GetCelestialBody();
                 //float3 L          = -light.forward.xyz;
 
-                float3 sunTransmittance = EvaluateSunColorAttenuation(alphaSaturation, alphaMultiplier,
-                    airScaleHeight, aerosolScaleHeight, airExtinctionCoefficient,
-                    aerosolExtinctionCoefficient, ozoneLayerMinimumAltitude,
-                    ozoneLayerWidth, ozoneExtinctionCoefficient,
+                float3 sunTransmittance = EvaluateSunColorAttenuation(skyParams,
                     dot(N, L), r);
-                float3 phaseScatter = AirScatter(height, type, airMaximumAltitude,
-                    airDensityR, airDensityG, airDensityB, airTint)
+                float3 phaseScatter = AirScatter(height, skyParams)
                     * AirPhase(-dot(L, V))
-                    + AerosolScatter(height, type, aerosolMaximumAltitude, aerosolDensity, aerosolTint)
-                    * AerosolPhase(-dot(L, V), aerosolAnisotropy);
+                    + AerosolScatter(height, skyParams.type, skyParams.aerosolMaximumAltitude, skyParams.aerosolDensity, skyParams.aerosolTint)
+                    * AerosolPhase(-dot(L, V), skyParams.aerosolAnisotropy);
                 //float3 multiScatteredLuminance = EvaluateMultipleScattering(dot(N, L), height);
 
                 float3 S = sunTransmittance * phaseScatter;// + multiScatteredLuminance * scatteringMS;
@@ -1482,13 +1468,12 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
         skyColor *= ExpLerp(float3(horizonTint.value.r, horizonTint.value.g, horizonTint.value.b), float3(zenithTint.value.r, zenithTint.value.g, zenithTint.value.b), nrmAngle, expParams.x, expParams.y);
     }
 #else
-    static void AtmosphereArtisticOverride(float colorSaturation, float alphaSaturation, float alphaMultiplier,
-        float horizonZenithShift, Color horizonTint, Color zenithTint,
+    static void AtmosphereArtisticOverride(in SkyParams s,
         float cosHor, float cosChi, ref float3 skyColor, ref float3 skyOpacity, bool precomputedColorDesaturate = false)
     {
         if (!precomputedColorDesaturate)
-            skyColor = Desaturate(skyColor, colorSaturation);
-        skyOpacity = Desaturate(skyOpacity, alphaSaturation) * alphaMultiplier;
+            skyColor = Desaturate(skyColor, s.colorSaturation);
+        skyOpacity = Desaturate(skyOpacity, s.alphaSaturation) * s.alphaMultiplier;
 
         float horAngle = acos(cosHor);
         float chiAngle = acos(cosChi);
@@ -1502,9 +1487,9 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
         float nrmAngle = remap(start, end, 0, 1, chiAngle);
         // float angle = saturate((0.5 * PI) - acos(cosChi) * rcp(0.5 * PI));
 
-        float2 expParams = ComputeExponentialInterpolationParams(horizonZenithShift);
+        float2 expParams = ComputeExponentialInterpolationParams(s.horizonZenithShift);
 
-        skyColor *= ExpLerp(float3(horizonTint.r, horizonTint.g, horizonTint.b), float3(zenithTint.r, zenithTint.g, zenithTint.b), nrmAngle, expParams.x, expParams.y);
+        skyColor *= ExpLerp(s.horizonTint3, s.zenithTint3, nrmAngle, expParams.x, expParams.y);
     }
 #endif // UNUSED
 
@@ -1553,14 +1538,7 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
     }
 #else
     public static void RenderSky(float3 lightDirection, float3 lightColor, float3 viewDirection, out float3 skyColor,
-        float airScaleHeight, float aerosolScaleHeight, Vector3 airExtinctionCoefficient, float aerosolExtinctionCoefficient,
-        float ozoneLayerMinimumAltitude, float ozoneLayerWidth, Vector3 ozoneExtinctionCoefficient,
-        float maximumAltitude, Color groundTint, float alphaSaturation, float alphaMultiplier,
-        PhysicallyBasedSkyModel type, float airMaximumAltitude,
-        float airDensityR, float airDensityG, float airDensityB, Color airTint,
-        float aerosolMaximumAltitude, float aerosolDensity, Color aerosolTint, float aerosolAnisotropy,
-        float colorSaturation, float horizonZenithShift, Color horizonTint, Color zenithTint,
-        SkyIntensityMode skyIntensityMode, float exposure, float multiplier, float desiredLuxValue, float upperHemisphereLuxValue)
+        in SkyParams s)
     {
         float3 positionPS = -PlanetaryRadiusCenter();
         float cosHor = ComputeCosineOfHorizonAngle(length(positionPS), PlanetaryRadius());
@@ -1568,11 +1546,7 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
 
         bool lookAboveHorizon = (cosChi >= cosHor);
 
-        float2 H = new float2(airScaleHeight, aerosolScaleHeight);
-        ComputeAtmosphericOpticalDepth(out float3 optDepth,
-            H, airExtinctionCoefficient,
-            aerosolExtinctionCoefficient, ozoneLayerMinimumAltitude,
-            ozoneLayerWidth, ozoneExtinctionCoefficient,
+        float3 optDepth = ComputeAtmosphericOpticalDepth(s,
             PlanetaryRadius(), PlanetaryRadius(), cosChi, true);
         float3 skyOpacity = 1.0f - TransmittanceFromOpticalDepth(optDepth);
 
@@ -1582,30 +1556,102 @@ public class PhysicallyBasedSky : VolumeComponent, IPostProcessComponent
 
         if (lookAboveHorizon)
         {
-            float tExit = IntersectSphere(r + maximumAltitude, dot(N, viewDirection), r, rcp(r)).y;
+            float tExit = IntersectSphere(r + s.maximumAltitude, dot(N, viewDirection), r, rcp(r)).y;
             EvaluateAtmosphericColor(lightDirection, lightColor, O, viewDirection, tExit,
-                out skyColor, out _,
-                alphaSaturation, alphaMultiplier,
-                aerosolScaleHeight, airScaleHeight,
-                ozoneLayerWidth, ozoneLayerMinimumAltitude, ozoneExtinctionCoefficient,
-                aerosolExtinctionCoefficient, airExtinctionCoefficient,
-                type, airMaximumAltitude,
-                airDensityR, airDensityG, airDensityB, airTint,
-                aerosolMaximumAltitude, aerosolDensity, aerosolTint, aerosolAnisotropy);
+                out skyColor, out _, s);
 
-            AtmosphereArtisticOverride(colorSaturation, alphaSaturation, alphaMultiplier,
-                horizonZenithShift, horizonTint, zenithTint,
-                cosHor, cosChi, ref skyColor, ref skyOpacity);
+            AtmosphereArtisticOverride(s, cosHor, cosChi, ref skyColor, ref skyOpacity);
         }
         else
         {
-            float3 gBrdf = rcp(PI) * float3(groundTint.r, groundTint.g, groundTint.b);
+            float3 gBrdf = rcp(PI) * s.groundTint3;
             skyColor = gBrdf * saturate(dot(N, lightDirection)) * lightColor;
         }
 
-        skyColor *= GetIntensityFromSettings(skyIntensityMode,
-            exposure, multiplier, desiredLuxValue, upperHemisphereLuxValue);
+        skyColor *= GetIntensityFromSettings(s.skyIntensityMode,
+            s.exposure, s.multiplier, s.desiredLuxValue, s.upperHemisphereLuxValue);
     }
 #endif // UNUSED
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    public struct SkyParams
+    {
+        public Color groundTint;
+        public Color airTint;
+        public Color aerosolTint;
+        public Color horizonTint;
+        public Color zenithTint;
+        public Vector3 airExtinctionCoefficient;
+        public float airScaleHeight;
+        public Vector3 ozoneExtinctionCoefficient;
+        public float aerosolScaleHeight;
+        public float aerosolExtinctionCoefficient;
+        public float ozoneLayerMinimumAltitude;
+        public float ozoneLayerWidth;
+        public float maximumAltitude;
+
+        public float alphaSaturation;
+        public float alphaMultiplier;
+        public PhysicallyBasedSkyModel type;
+        public float airMaximumAltitude;
+        public float airDensityR;
+        public float airDensityG;
+        public float airDensityB;
+        public float aerosolMaximumAltitude;
+        public float aerosolDensity;
+        public float aerosolAnisotropy;
+        public float colorSaturation;
+        public float horizonZenithShift;
+        public SkyIntensityMode skyIntensityMode;
+        public float exposure;
+        public float multiplier;
+        public float desiredLuxValue;
+        public float upperHemisphereLuxValue;
+
+        public readonly float3 groundTint3 => new float3(groundTint.r, groundTint.g, groundTint.b);
+        public readonly float3 airTint3 => new float3(airTint.r, airTint.g, airTint.b);
+        public readonly float3 aerosolTint3 => new float3(aerosolTint.r, aerosolTint.g, aerosolTint.b);
+        public readonly float3 horizonTint3 => new float3(horizonTint.r, horizonTint.g, horizonTint.b);
+        public readonly float3 zenithTint3 => new float3(zenithTint.r, zenithTint.g, zenithTint.b);
+
+        public readonly float3 airDensity => new float3(airDensityR, airDensityG, airDensityB);
+
+        public static implicit operator SkyParams(PhysicallyBasedSky pbrSky) => new SkyParams(pbrSky);
+
+        public SkyParams(PhysicallyBasedSky pbrSky)
+        {
+            airScaleHeight = pbrSky.GetAirScaleHeight();
+            aerosolScaleHeight = pbrSky.GetAerosolScaleHeight();
+            airExtinctionCoefficient = pbrSky.GetAirExtinctionCoefficient();
+            aerosolExtinctionCoefficient = pbrSky.GetAerosolExtinctionCoefficient();
+            ozoneLayerMinimumAltitude = pbrSky.GetOzoneLayerMinimumAltitude();
+            ozoneLayerWidth = pbrSky.GetOzoneLayerWidth();
+            ozoneExtinctionCoefficient = pbrSky.GetOzoneExtinctionCoefficient();
+            maximumAltitude = pbrSky.GetMaximumAltitude();
+            groundTint = pbrSky.groundTint.value;
+
+            alphaSaturation = pbrSky.alphaSaturation.value;
+            alphaMultiplier = pbrSky.alphaMultiplier.value;
+            type = pbrSky.type.value;
+            airMaximumAltitude = pbrSky.airMaximumAltitude.value;
+            airDensityR = pbrSky.airDensityR.value;
+            airDensityG = pbrSky.airDensityG.value;
+            airDensityB = pbrSky.airDensityB.value;
+            airTint = pbrSky.airTint.value;
+            aerosolMaximumAltitude = pbrSky.aerosolMaximumAltitude.value;
+            aerosolDensity = pbrSky.aerosolDensity.value;
+            aerosolTint = pbrSky.aerosolTint.value;
+            aerosolAnisotropy = pbrSky.aerosolAnisotropy.value;
+            colorSaturation = pbrSky.colorSaturation.value;
+            horizonZenithShift = pbrSky.horizonZenithShift.value;
+            horizonTint = pbrSky.horizonTint.value;
+            zenithTint = pbrSky.zenithTint.value;
+            skyIntensityMode = pbrSky.skyIntensityMode.value;
+            exposure = pbrSky.exposure.value;
+            multiplier = pbrSky.multiplier.value;
+            desiredLuxValue = pbrSky.desiredLuxValue.value;
+            upperHemisphereLuxValue = pbrSky.upperHemisphereLuxValue.value;
+        }
+    }
     #endregion
 }

@@ -185,10 +185,10 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
     public override void Create()
     {
         var stack = VolumeManager.instance.stack;
+#if DEBUG
         PhysicallyBasedSky pbrSkyVolume = stack.GetComponent<PhysicallyBasedSky>();
         VisualEnvironment visualEnvVolume = stack.GetComponent<VisualEnvironment>();
 
-#if DEBUG
         // Validate sky shaders
         bool shadersValid = true;
         if (m_Shader != Shader.Find(k_PbrSkyShaderName))
@@ -819,41 +819,10 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             var renderSkyJob = new RenderSkyJob
             {
                 colours = colours,
-                fibonacciSamples = fibonacciSamplesNative,
+                fibonacciSamples = fibonacciSamplesNative.AsReadOnly(),
                 lightDirection = lightDirection,
                 lightColor = lightColor,
-
-                airScaleHeight = pbrSky.GetAirScaleHeight(),
-                aerosolScaleHeight = pbrSky.GetAerosolScaleHeight(),
-                airExtinctionCoefficient = pbrSky.GetAirExtinctionCoefficient(),
-                aerosolExtinctionCoefficient = pbrSky.GetAerosolExtinctionCoefficient(),
-                ozoneLayerMinimumAltitude = pbrSky.GetOzoneLayerMinimumAltitude(),
-                ozoneLayerWidth = pbrSky.GetOzoneLayerWidth(),
-                ozoneExtinctionCoefficient = pbrSky.GetOzoneExtinctionCoefficient(),
-                maximumAltitude = pbrSky.GetMaximumAltitude(),
-                groundTint = pbrSky.groundTint.value,
-
-                alphaSaturation = pbrSky.alphaSaturation.value,
-                alphaMultiplier = pbrSky.alphaMultiplier.value,
-                type = pbrSky.type.value,
-                airMaximumAltitude = pbrSky.airMaximumAltitude.value,
-                airDensityR = pbrSky.airDensityR.value,
-                airDensityG = pbrSky.airDensityG.value,
-                airDensityB = pbrSky.airDensityB.value,
-                airTint = pbrSky.airTint.value,
-                aerosolMaximumAltitude = pbrSky.aerosolMaximumAltitude.value,
-                aerosolDensity = pbrSky.aerosolDensity.value,
-                aerosolTint = pbrSky.aerosolTint.value,
-                aerosolAnisotropy = pbrSky.aerosolAnisotropy.value,
-                colorSaturation = pbrSky.colorSaturation.value,
-                horizonZenithShift = pbrSky.horizonZenithShift.value,
-                horizonTint = pbrSky.horizonTint.value,
-                zenithTint = pbrSky.zenithTint.value,
-                skyIntensityMode = pbrSky.skyIntensityMode.value,
-                exposure = pbrSky.exposure.value,
-                multiplier = pbrSky.multiplier.value,
-                desiredLuxValue = pbrSky.desiredLuxValue.value,
-                upperHemisphereLuxValue = pbrSky.upperHemisphereLuxValue.value,
+                skyParams = pbrSky,
             };
 
             Unity.Jobs.IJobForExtensions.RunByRef(ref renderSkyJob, fibonacciSamplesCount);
@@ -889,7 +858,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 #endif // OPTIMISATION
 
 #if ENABLE_BURST_1_0_0_OR_NEWER
-[Unity.Burst.BurstCompile(FloatMode = Unity.Burst.FloatMode.Fast)]
+        [Unity.Burst.BurstCompile(FloatMode = Unity.Burst.FloatMode.Fast)]
 #endif // ENABLE_BURST_1_0_0_OR_NEWER
         struct RenderSkyJob : Unity.Jobs.IJobFor
         {
@@ -901,57 +870,17 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             [Unity.Collections.ReadOnly]
             [Unity.Collections.NativeFixedLength(fibonacciSamplesCount)]
             [Unity.Collections.NativeMatchesParallelForLength]
-            public Unity.Collections.NativeArray<float3> fibonacciSamples;
+            public Unity.Collections.NativeArray<float3>.ReadOnly fibonacciSamples;
+
+            public PhysicallyBasedSky.SkyParams skyParams;
 
             public float3 lightDirection;
             public float3 lightColor;
 
-            public float airScaleHeight;
-            public float aerosolScaleHeight;
-            public Vector3 airExtinctionCoefficient;
-            public float aerosolExtinctionCoefficient;
-            public float ozoneLayerMinimumAltitude;
-            public float ozoneLayerWidth;
-            public Vector3 ozoneExtinctionCoefficient;
-            public float maximumAltitude;
-            public Color groundTint;
-
-            public float alphaSaturation;
-            public float alphaMultiplier;
-            public PhysicallyBasedSky.PhysicallyBasedSkyModel type;
-            public float airMaximumAltitude;
-            public float airDensityR;
-            public float airDensityG;
-            public float airDensityB;
-            public Color airTint;
-            public float aerosolMaximumAltitude;
-            public float aerosolDensity;
-            public Color aerosolTint;
-            public float aerosolAnisotropy;
-            public float colorSaturation;
-            public float horizonZenithShift;
-            public Color horizonTint;
-            public Color zenithTint;
-            public PhysicallyBasedSky.SkyIntensityMode skyIntensityMode;
-            public float exposure;
-            public float multiplier;
-            public float desiredLuxValue;
-            public float upperHemisphereLuxValue;
-
             public void Execute(int index)
             {
                 float3 V = fibonacciSamples[index];
-
-                PhysicallyBasedSky.RenderSky(-lightDirection, lightColor, V, out float3 skyColor,
-                    airScaleHeight, aerosolScaleHeight, airExtinctionCoefficient, aerosolExtinctionCoefficient,
-                    ozoneLayerMinimumAltitude, ozoneLayerWidth, ozoneExtinctionCoefficient,
-                    maximumAltitude, groundTint, alphaSaturation, alphaMultiplier,
-                    type, airMaximumAltitude,
-                    airDensityR, airDensityG, airDensityB, airTint,
-                    aerosolMaximumAltitude, aerosolDensity, aerosolTint, aerosolAnisotropy,
-                    colorSaturation, horizonZenithShift, horizonTint, zenithTint,
-                    skyIntensityMode, exposure, multiplier, desiredLuxValue, upperHemisphereLuxValue);
-
+                PhysicallyBasedSky.RenderSky(-lightDirection, lightColor, V, out float3 skyColor, skyParams);
                 colours[index] = new Color(skyColor.x, skyColor.y, skyColor.z);
             }
         }
@@ -2486,7 +2415,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             internal int i;
         }
 
-#if !UNITY_IOS
+#if !(UNITY_IOS || UNITY_STANDALONE_OSX || UNITY_EDITOR_OSX)
         static void ExecuteFirstPass(PassData data, RasterGraphContext context)
         {
             RasterCommandBuffer cmd = context.cmd;
@@ -2652,7 +2581,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             if (data.isStereoEnabled)
                 cmd.EnableShaderKeyword(STEREO_INSTANCING_ON);
         }
-#endif // UNITY_IOS
+#endif // UNITY_IOS || UNITY_STANDALONE_OSX || UNITY_EDITOR_OSX
 
 #if OPTIMISATION
 #if ENABLE_BURST_1_0_0_OR_NEWER
@@ -2660,17 +2589,13 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 #endif // ENABLE_BURST_1_0_0_OR_NEWER
         struct SkyMatrixVPJob : Unity.Jobs.IJobFor
         {
-            [Unity.Collections.WriteOnly]
-            [Unity.Collections.NativeFixedLength(6)]
-            [Unity.Collections.NativeMatchesParallelForLength]
-            public Unity.Collections.NativeArray<float4x4> invSkyViewMatrices;
+            [Unity.Collections.NativeMatchesParallelForLength, Unity.Collections.NativeFixedLength(6)]
+            [Unity.Collections.WriteOnly] public Unity.Collections.NativeArray<float4x4> invSkyViewMatrices;
 
-            [Unity.Collections.ReadOnly, Unity.Collections.DeallocateOnJobCompletion]
-            [Unity.Collections.NativeFixedLength(6)]
-            [Unity.Collections.NativeMatchesParallelForLength]
-            public Unity.Collections.NativeArray<float4x4> skyViewMatrices;
+            [Unity.Collections.NativeMatchesParallelForLength, Unity.Collections.NativeFixedLength(6)]
+            [Unity.Collections.ReadOnly, Unity.Collections.DeallocateOnJobCompletion] public Unity.Collections.NativeArray<float4x4> skyViewMatrices;
 
-            public float4x4 skyMatrixP;
+            public Matrix4x4 skyMatrixP;
 
             public void Execute(int index)
             {
@@ -2699,7 +2624,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
             reflectionResolution = Mathf.ClosestPowerOfTwo((int)(512 * ScalableBufferManager.widthScaleFactor));
 
-            var skyMaterial = RenderSettings.skybox;
+            Material skyMaterial = RenderSettings.skybox;
 
             desc.msaaSamples = 1;
             desc.useMipMap = true;
@@ -2734,7 +2659,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             }
 #endif // OPTIMISATION
 
-#if !UNITY_IOS
+#if !(UNITY_IOS || UNITY_STANDALONE_OSX || UNITY_EDITOR_OSX)
             desc.useMipMap = false;
             desc.autoGenerateMips = false;
             desc.dimension = TextureDimension.Tex2DArray;
@@ -2917,7 +2842,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
                 builder.SetRenderFunc(static (PassData data, UnsafeGraphContext context) => ExecutePass(data, context));
             }
-#endif // UNITY_IOS
+#endif // UNITY_IOS || UNITY_STANDALONE_OSX || UNITY_EDITOR_OSX
         }
         #endregion
 #endif
