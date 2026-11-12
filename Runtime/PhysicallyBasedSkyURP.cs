@@ -79,6 +79,9 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
     private const string k_DynamicAmbientProbeKeywordName = "VISUAL_ENVIRONMENT_DYNAMIC_SKY";
     private const string k_AtmosphericScatteringLowResolutionKeywordName = "ATMOSPHERIC_SCATTERING_LOW_RES";
 
+    private static readonly int Tex = Shader.PropertyToID("_Tex");
+    private Texture skyboxTexture;
+
     /// <summary>
     /// Get the skybox material of physically based sky.
     /// </summary>
@@ -185,10 +188,10 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
     public override void Create()
     {
         var stack = VolumeManager.instance.stack;
-#if DEBUG
         PhysicallyBasedSky pbrSkyVolume = stack.GetComponent<PhysicallyBasedSky>();
         VisualEnvironment visualEnvVolume = stack.GetComponent<VisualEnvironment>();
 
+#if DEBUG
         // Validate sky shaders
         bool shadersValid = true;
         if (m_Shader != Shader.Find(k_PbrSkyShaderName))
@@ -376,6 +379,16 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         }
 
         UpdateSkySettings(isPbrSky, visualEnvVolume);
+
+        if (skyboxTexture == null && renderingData.cameraData.camera.TryGetComponent(out Skybox skybox))
+        {
+            int mainLightIndex = renderingData.lightData.mainLightIndex;
+            if (mainLightIndex != -1)
+                RenderSettings.sun = renderingData.lightData.visibleLights[mainLightIndex].light;
+
+            skyboxTexture = RenderSettings.customReflectionTexture;
+            skybox.material.SetTexture(Tex, skyboxTexture);
+        }
     }
 
     protected override void Dispose(bool disposing)
@@ -546,7 +559,10 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         private const string LOCAL_SKY = "LOCAL_SKY";
         private const string SKY_NOT_BAKING = "SKY_NOT_BAKING";
 
+#if OPTIMISATION
+#else
         private SphericalHarmonicsL2 ambientProbe = new SphericalHarmonicsL2();
+#endif // OPTIMISATION
 
         private const int fibonacciSamplesCount = 64;
         private static readonly float3[] fibonacciSamples = new float3[] {
@@ -776,17 +792,21 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 #endif
                 }
 
+#if OPTIMISATION_UNITY
                 UpdateMaterialProperties(mainLight, camera, material);
+#else
+                UpdateMaterialProperties(mainLight, cameraData.camera, material);
+#endif // OPTIMISATION_UNITY
                 lutMaterial.CopyPropertiesFromMaterial(material);
 
                 if (mainLightFound && visualEnvironment.skyAmbientMode.value == VisualEnvironment.SkyAmbientMode.Dynamic)
                 {
 #if OPTIMISATION
-                    UpdateAmbientProbe(ref ambientProbe, forward, mainLightColor, pbrSky);
+                    UpdateAmbientProbe(forward, mainLightColor, pbrSky);
 #else
                     ambientProbe = UpdateAmbientProbe(ambientProbe, forward, mainLightColor);
-#endif // OPTIMISATION
                     RenderSettings.ambientProbe = ambientProbe;
+#endif // OPTIMISATION
                 }
 
                 passData.mainLightColor = mainLightColor;
@@ -809,12 +829,14 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         }
 
 #if OPTIMISATION
-        static void UpdateAmbientProbe(ref SphericalHarmonicsL2 ambientProbe, in float3 lightDirection, in float3 lightColor,
+        static void UpdateAmbientProbe(in float3 lightDirection, in float3 lightColor,
             in PhysicallyBasedSky.SkyParams skyParams)
         {
+            SphericalHarmonicsL2 ambientProbe = default;
             var fibonacciSamplesNative = new Unity.Collections.NativeArray<float3>(fibonacciSamples, Unity.Collections.Allocator.TempJob);
             UpdateAmbientProbe(ref ambientProbe, lightDirection, lightColor, skyParams, fibonacciSamplesNative.AsReadOnly());
             fibonacciSamplesNative.Dispose();
+            RenderSettings.ambientProbe = ambientProbe;
         }
 
 #if ENABLE_BURST_1_0_0_OR_NEWER
@@ -823,7 +845,6 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         static void UpdateAmbientProbe(ref SphericalHarmonicsL2 ambientProbe, in float3 lightDirection, in float3 lightColor,
             in PhysicallyBasedSky.SkyParams skyParams, in Unity.Collections.NativeArray<float3>.ReadOnly fibonacciSamples)
         {
-            ambientProbe.Clear();
             const float weightOverPdf = (float)(PI_DBL * (fibonacciSamplesCount / 4));
             foreach (float3 V in fibonacciSamples)
             {
@@ -852,6 +873,11 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 #endif // OPTIMISATION
 
 #if OPTIMISATION_UNITY
+        private void UpdateMaterialProperties(Light mainLight, Camera camera, Material material)
+        {
+            UpdateMaterialProperties(mainLight, camera.transformHandle.position, material);
+        }
+
         private void UpdateMaterialProperties(Light mainLight, Vector3 cameraPos, Material material)
         {
             float4 planetCenterRadius = visualEnvironment.GetPlanetCenterRadius(cameraPos);
@@ -2177,7 +2203,6 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         private readonly RendererListHandle[] rendererListHandles = new RendererListHandle[6];
 #endif
 
-#if OPTIMISATION
         private readonly Matrix4x4[] invSkyViewMatrices = new Matrix4x4[6];
 
         private readonly Matrix4x4[] skyViewMatrices = {
@@ -2188,9 +2213,6 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             backView * Matrix4x4.Scale(new Vector3(1.0f, 1.0f, -1.0f)),
             frontView * Matrix4x4.Scale(new Vector3(1.0f, 1.0f, -1.0f)),
         };
-#else
-        private readonly Matrix4x4[] skyViewMatrices = new Matrix4x4[6];
-#endif // OPTIMISATION
 
         private static readonly Vector4 m_ScaleBias = new Vector4(1.0f, 1.0f, 0.0f, 0.0f);
 
@@ -2452,9 +2474,10 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             context.cmd.SetGlobalVector(scaledScreenParams, skyViewScreenParams);
             context.cmd.SetGlobalVector(screenSize, skyViewScreenSize);
 
-#if ZERO
+#if OPTIMISATION
+#else
             Matrix4x4 skyMatrixP = GL.GetGPUProjectionMatrix(data.skyProjectionMatrix, true);
-#endif // ZERO
+#endif // OPTIMISATION
 
             for (int i = 0; i < 6; i++)
             {
@@ -2618,10 +2641,11 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
             nativeInvSkyViewMatrices.CopyTo(invSkyViewMatrices);
             nativeInvSkyViewMatrices.Dispose();
-
-            if (probeColorHandle != null && cameraData.camera.TryGetComponent<Skybox>(out var skybox))
+#else
+            var skyMatrixP = GL.GetGPUProjectionMatrix(skyProjectionMatrix, renderIntoTexture: true);
+            for (int i = 0; i < 6; i++)
             {
-                skybox.material.SetTexture("_Tex", probeColorHandle.rt);
+                invSkyViewMatrices[i] = (skyMatrixP * skyViewMatrices[i]).inverse;
             }
 #endif // OPTIMISATION
 
