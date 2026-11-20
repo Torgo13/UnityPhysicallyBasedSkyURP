@@ -208,7 +208,11 @@ float2 MapAerialPerspective(half cosChi, float height, float texelSize)
     float cosHor = ComputeCosineOfHorizonAngle(r);
 
     // Above horizon?
+#ifndef URP_VOLUMETRIC_CLOUDS_UTILITIES_HLSL
+    const float s = 1.0;
+#else
     float s = FastSign(cosChi - cosHor);
+#endif // URP_VOLUMETRIC_CLOUDS_UTILITIES_HLSL
 
     // float x = (cosChi - cosHor) * rcp(1 - s * cosHor); // in [-1, 1]
     // float m = pow(abs(x), 0.5);
@@ -564,8 +568,14 @@ TexCoord4D ConvertPositionAndOrientationToTexCoords(float height, half NdotV, ha
 
     half  cosChi = -NdotV;
 
+#if 0
     float u = MapAerialPerspective(cosChi, height, rcp(PBRSKYCONFIG_IN_SCATTERED_RADIANCE_TABLE_SIZE_X)).x;
     float v = MapAerialPerspective(cosChi, height, rcp(PBRSKYCONFIG_IN_SCATTERED_RADIANCE_TABLE_SIZE_X)).y;
+#else
+    float2 uv = MapAerialPerspective(cosChi, height, rcp(PBRSKYCONFIG_IN_SCATTERED_RADIANCE_TABLE_SIZE_X));
+    float u = uv.x;
+    float v = uv.y;
+#endif // 0
     float w = (0.5 + (INV_PI * phiL) * (zTexSize - 1)) * rcp(zTexSize); // [0.5 / zts, 1 - 0.5 / zts]
     float k = MapCosineOfZenithAngle(NdotL) * (zTexCnt - 1);            // [0, ztc - 1]
 
