@@ -2677,26 +2677,50 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             TextureHandle probeColorTextureHandle = renderGraph.ImportTexture(probeColorHandle);
 
             // Sort the directions so faces with the same ShadingRateFragmentSize are rendered together
-            cameraData.camera.transform.GetPositionAndRotation(out var cameraPositionWS, out var rot);
+            Vector3 cameraPositionWS = cameraData.camera.transformHandle.position;
             visualEnvironment.planetCenter.value = new Vector3(0, -6378.1f, 0) - 0.001f * cameraPositionWS;
-            var forward = rot * Vector3.forward;
-            var aspectRatio = (float)cameraData.cameraTargetDescriptor.height / cameraData.cameraTargetDescriptor.width;
-            ReadOnlySpan<float> directions = stackalloc float[6]
+
+            // Normalised rays to each corner of the camera frustum
+            ReadOnlySpan<Vector3> rays = stackalloc Vector3[]
             {
-                Vector3.Distance(Vector3.left, forward),
-                Vector3.Distance(Vector3.right, forward),
-                Vector3.Distance(Vector3.down, forward) * aspectRatio,
-                Vector3.Distance(Vector3.up, forward) * aspectRatio,
-                Vector3.Distance(Vector3.back, forward),
-                Vector3.Distance(Vector3.forward, forward),
+                cameraData.camera.ViewportPointToRay(new Vector3(0, 0)).direction, // bl
+                cameraData.camera.ViewportPointToRay(new Vector3(0, 1)).direction, // tl
+                cameraData.camera.ViewportPointToRay(new Vector3(1, 0)).direction, // br
+                cameraData.camera.ViewportPointToRay(new Vector3(1, 1)).direction, // tr
             };
+
+            static bool Visible(ReadOnlySpan<Vector3> a, int i)
+            {
+                Vector3 b = Direction(i);
+
+                foreach (var v in a)
+                {
+                    if (Angle(b, v))
+                        return true;
+                }
+
+                return false;
+
+                static Vector3 Direction(int i) => i switch
+                {
+                    1 => Vector3.right,
+                    2 => Vector3.down,
+                    3 => Vector3.up,
+                    4 => Vector3.back,
+                    5 => Vector3.forward,
+                    _ => Vector3.left,
+                };
+
+                static bool Angle(in Vector3 from, in Vector3 to)
+                    => Math.Acos(Vector3.Dot(in from, in to)) > 2 * Math.PI / 3; // 120 degrees
+            }
 
             int start = 0;
             int end = 5;
             Span<int> order = stackalloc int[6];
             for (int i = 0; i < 6; i++)
             {
-                if (directions[i] > 1f)
+                if (Visible(rays, i))
                 {
                     order[start++] = i;
                 }
