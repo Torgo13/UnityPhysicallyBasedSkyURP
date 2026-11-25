@@ -802,7 +802,7 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
                 if (mainLightFound && visualEnvironment.skyAmbientMode.value == VisualEnvironment.SkyAmbientMode.Dynamic)
                 {
 #if OPTIMISATION
-                    UpdateAmbientProbe(forward, mainLightColor, pbrSky);
+                    UpdateAmbientProbe(-forward, mainLightColor, pbrSky);
 #else
                     ambientProbe = UpdateAmbientProbe(ambientProbe, forward, mainLightColor);
                     RenderSettings.ambientProbe = ambientProbe;
@@ -832,23 +832,23 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         static void UpdateAmbientProbe(in float3 lightDirection, in float3 lightColor,
             in PhysicallyBasedSky.SkyParams skyParams)
         {
-            SphericalHarmonicsL2 ambientProbe = default;
-            var fibonacciSamplesNative = new Unity.Collections.NativeArray<float3>(fibonacciSamples, Unity.Collections.Allocator.TempJob);
-            UpdateAmbientProbe(ref ambientProbe, lightDirection, lightColor, skyParams, fibonacciSamplesNative.AsReadOnly());
-            fibonacciSamplesNative.Dispose();
+            UpdateAmbientProbe(out var ambientProbe, lightDirection, lightColor,
+                skyParams, ref fibonacciSamples[0]);
             RenderSettings.ambientProbe = ambientProbe;
         }
 
 #if ENABLE_BURST_1_0_0_OR_NEWER
         [Unity.Burst.BurstCompile(FloatPrecision = Unity.Burst.FloatPrecision.Low, FloatMode = Unity.Burst.FloatMode.Fast)]
 #endif // ENABLE_BURST_1_0_0_OR_NEWER
-        static void UpdateAmbientProbe(ref SphericalHarmonicsL2 ambientProbe, in float3 lightDirection, in float3 lightColor,
-            in PhysicallyBasedSky.SkyParams skyParams, in Unity.Collections.NativeArray<float3>.ReadOnly fibonacciSamples)
+        static void UpdateAmbientProbe(out SphericalHarmonicsL2 ambientProbe, in float3 lightDirection, in float3 lightColor,
+            in PhysicallyBasedSky.SkyParams skyParams, ref float3 fibonacciSample)
         {
             const float weightOverPdf = (float)(PI_DBL * (fibonacciSamplesCount / 4));
+            ambientProbe = default;
+            var fibonacciSamples = System.Runtime.InteropServices.MemoryMarshal.CreateReadOnlySpan(ref fibonacciSample, fibonacciSamplesCount);
             foreach (float3 V in fibonacciSamples)
             {
-                PhysicallyBasedSky.RenderSky(-lightDirection, lightColor, V, out float3 skyColor, skyParams);
+                PhysicallyBasedSky.RenderSky(lightDirection, lightColor, V, out float3 skyColor, skyParams);
                 ambientProbe.AddDirectionalLight(V, new Color(skyColor.x, skyColor.y, skyColor.z), weightOverPdf);
             }
         }
@@ -2153,6 +2153,9 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
     /// <summary>
     /// This pass updates the sky and environment reflection.
     /// </summary>
+#if ENABLE_BURST_1_0_0_OR_NEWER
+    [Unity.Burst.BurstCompile]
+#endif // ENABLE_BURST_1_0_0_OR_NEWER
     private class AmbientProbePass : ScriptableRenderPass
     {
         private const string profilerTag = "Update Environment Reflection";
@@ -2574,21 +2577,17 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
 #if OPTIMISATION
 #if ENABLE_BURST_1_0_0_OR_NEWER
-        [Unity.Burst.BurstCompile(FloatMode = Unity.Burst.FloatMode.Fast)]
+        [Unity.Burst.BurstCompile(FloatPrecision = Unity.Burst.FloatPrecision.Low, FloatMode = Unity.Burst.FloatMode.Fast)]
 #endif // ENABLE_BURST_1_0_0_OR_NEWER
-        struct SkyMatrixVPJob : Unity.Jobs.IJobFor
+        static void SkyMatrixVP(ref Matrix4x4 invSkyViewMatrix, ref Matrix4x4 skyViewMatrix, in float4x4 skyMatrixP)
         {
-            [Unity.Collections.NativeMatchesParallelForLength, Unity.Collections.NativeFixedLength(6)]
-            [Unity.Collections.WriteOnly] public Unity.Collections.NativeArray<float4x4> invSkyViewMatrices;
+            const int length = 6;
+            Span<Matrix4x4> invSkyViewMatrices = System.Runtime.InteropServices.MemoryMarshal.CreateSpan(ref invSkyViewMatrix, length);
+            ReadOnlySpan<Matrix4x4> skyViewMatrices = System.Runtime.InteropServices.MemoryMarshal.CreateReadOnlySpan(ref skyViewMatrix, length);
 
-            [Unity.Collections.NativeMatchesParallelForLength, Unity.Collections.NativeFixedLength(6)]
-            [Unity.Collections.ReadOnly, Unity.Collections.DeallocateOnJobCompletion] public Unity.Collections.NativeArray<float4x4> skyViewMatrices;
-
-            public Matrix4x4 skyMatrixP;
-
-            public void Execute(int index)
+            for (int i = 0; i < length; i++)
             {
-                invSkyViewMatrices[index] = inverse(mul(skyMatrixP, skyViewMatrices[index]));
+                invSkyViewMatrices[i] = inverse(mul(skyMatrixP, skyViewMatrices[i]));
             }
         }
 #endif // OPTIMISATION
@@ -2625,24 +2624,10 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             desc.depthBufferBits = 0;
             desc.useDynamicScale = false;
 
-#if OPTIMISATION
-            const Unity.Collections.Allocator allocator = Unity.Collections.Allocator.TempJob;
-            const Unity.Collections.NativeArrayOptions options = Unity.Collections.NativeArrayOptions.UninitializedMemory;
-
-            var nativeInvSkyViewMatrices = new Unity.Collections.NativeArray<Matrix4x4>(skyViewMatrices.Length, allocator, options);
-            var nativeSkyViewMatrices = new Unity.Collections.NativeArray<Matrix4x4>(skyViewMatrices, allocator);
-
-            Unity.Jobs.IJobForExtensions.Run(new SkyMatrixVPJob
-            {
-                invSkyViewMatrices = nativeInvSkyViewMatrices.Reinterpret<float4x4>(),
-                skyViewMatrices = nativeSkyViewMatrices.Reinterpret<float4x4>(),
-                skyMatrixP = GL.GetGPUProjectionMatrix(skyProjectionMatrix, renderIntoTexture: true),
-            }, skyViewMatrices.Length);
-
-            nativeInvSkyViewMatrices.CopyTo(invSkyViewMatrices);
-            nativeInvSkyViewMatrices.Dispose();
-#else
             var skyMatrixP = GL.GetGPUProjectionMatrix(skyProjectionMatrix, renderIntoTexture: true);
+#if OPTIMISATION
+            SkyMatrixVP(ref invSkyViewMatrices[0], ref skyViewMatrices[0], skyMatrixP);
+#else
             for (int i = 0; i < 6; i++)
             {
                 invSkyViewMatrices[i] = (skyMatrixP * skyViewMatrices[i]).inverse;
