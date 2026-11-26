@@ -187,9 +187,12 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
 
     public override void Create()
     {
+#if BUGFIX
+#else
         var stack = VolumeManager.instance.stack;
         PhysicallyBasedSky pbrSkyVolume = stack.GetComponent<PhysicallyBasedSky>();
         VisualEnvironment visualEnvVolume = stack.GetComponent<VisualEnvironment>();
+#endif // BUGFIX
 
 #if DEBUG
         // Validate sky shaders
@@ -226,6 +229,10 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
         // Cleanup settings when disabled
         if (!isActive)
         {
+#if BUGFIX
+            var stack = VolumeManager.instance.stack;
+            VisualEnvironment visualEnvVolume = stack?.GetComponent<VisualEnvironment>();
+#endif // BUGFIX
             bool isCustomSkyType = visualEnvVolume != null && visualEnvVolume.IsActive() && visualEnvVolume.skyType.value == (int)VisualEnvironment.SkyType.Custom && visualEnvVolume.customSkyMaterial.value != null;
 
             RenderSettings.skybox = isCustomSkyType ? visualEnvVolume.customSkyMaterial.value : m_FallbackSkyMaterial;
@@ -308,9 +315,9 @@ public class PhysicallyBasedSkyURP : ScriptableRendererFeature
             return;
 
         var stack = VolumeManager.instance.stack;
-        PhysicallyBasedSky pbrSkyVolume = stack.GetComponent<PhysicallyBasedSky>();
-        VisualEnvironment visualEnvVolume = stack.GetComponent<VisualEnvironment>();
-        Fog fogVolume = stack.GetComponent<Fog>();
+        PhysicallyBasedSky pbrSkyVolume = stack?.GetComponent<PhysicallyBasedSky>();
+        VisualEnvironment visualEnvVolume = stack?.GetComponent<VisualEnvironment>();
+        Fog fogVolume = stack?.GetComponent<Fog>();
 
 #if DEBUG
         const bool isPbrSky = true;

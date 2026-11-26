@@ -182,11 +182,13 @@ Shader "Hidden/Skybox/PhysicallyBasedSky"
                 // Calculate the virtual position of skybox for view direction calculation
                 output.positionWS = TransformObjectToWorld(input.positionOS.xyz);
                 
+#if defined(_TERRAIN) || defined(_SHADOWS)
                 float maxDistManhattan = 2.0 / _SnapshotData.z;
                 float2 bounds = _SnapshotData.xy;
                 float view = atan2(_TerrainData.y - _WorldSpaceCameraPos.y, _TerrainData.x);
                 output.temp = float4(bounds, maxDistManhattan, view);
                 output.viewDir = normalize(output.positionWS - _WorldSpaceCameraPos);
+#endif // defined(_TERRAIN) || defined(_SHADOWS)
 
                 return output;
             }
